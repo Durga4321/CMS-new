@@ -30,6 +30,7 @@ const titleMap = {
   "/reports": "Reports & Analytics",
   "/logs": "Audit Logs",
   "/notifications": "Notifications",
+  "/profile": "Profile",
   "/settings": "System Settings",
   "/reception": "Reception Dashboard",
 };
@@ -99,27 +100,27 @@ const receptionistSearchModules = [
     terms: ["reception", "dashboard", "front desk", "overview"],
   },
   {
-    label: "Add Patient",
-    description: "Open the patient registration panel",
-    to: "/reception",
-    search: { panel: "patient" },
+    label: "Patients",
+    description: "Open the patient management panel",
+    to: "/reception/patients",
     terms: ["patient", "patients", "add patient", "registration", "register"],
   },
   {
     label: "Book Appointment",
     description: "Open the appointment booking panel",
-    to: "/reception",
-    search: { panel: "appointment" },
+    to: "/reception/appointments",
     terms: ["appointment", "appointments", "booking", "book appointment", "schedule"],
   },
   {
     label: "Billing",
     description: "Open the billing panel",
-    to: "/reception",
-    search: { panel: "billing" },
+    to: "/reception/billing",
     terms: ["bill", "bills", "billing", "payment", "invoice"],
   },
 ];
+
+const SUPER_ADMIN_EMAIL = "superadmin@gmail.com";
+const READ_NOTIFICATIONS_KEY = "clinic_command_center_read_notifications";
 
 function getScore(module, query) {
   const normalized = query.trim().toLowerCase();
@@ -143,6 +144,15 @@ export function Topbar({ onMenu }) {
   const authUser = getAuthUser();
   const role = authUser?.role?.toLowerCase?.() ?? "admin";
   const isReceptionist = role === "receptionist";
+  const storedName = authUser?.name ?? authUser?.Name ?? authUser?.fullName ?? authUser?.FullName;
+  const email = authUser?.email ?? authUser?.Email ?? "";
+  const isSuperAdmin = role === "superadmin" || email.toLowerCase() === SUPER_ADMIN_EMAIL;
+  const accountName =
+    isSuperAdmin && (!storedName || storedName.toLowerCase() === "superadmin")
+      ? "DP"
+      : storedName || (isReceptionist ? "Reception Desk" : "Admin");
+  const accountRole = formatRole(authUser?.role ?? (isReceptionist ? "receptionist" : "admin"));
+  const accountInitials = getInitials(accountName);
   const [openNotif, setOpenNotif] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -173,10 +183,27 @@ export function Topbar({ onMenu }) {
   const handleNotificationsOpenChange = (nextOpen) => {
     setOpenNotif(nextOpen);
     if (nextOpen) {
-      setNotifications((currentNotifications) =>
-        currentNotifications.map((notification) => ({ ...notification, read: true })),
-      );
+      markNotificationsRead(notifications);
     }
+  };
+
+  const markNotificationsRead = (items) => {
+    const readKeys = getStoredReadNotificationKeys();
+    items.forEach((notification) => readKeys.add(getNotificationKey(notification)));
+    storeReadNotificationKeys(readKeys);
+    setNotifications((currentNotifications) =>
+      currentNotifications.map((notification) =>
+        readKeys.has(getNotificationKey(notification))
+          ? { ...notification, read: true }
+          : notification,
+      ),
+    );
+  };
+
+  const openNotification = (notification) => {
+    markNotificationsRead([notification]);
+    setOpenNotif(false);
+    navigate({ to: "/notifications" });
   };
 
   useEffect(() => {
@@ -205,7 +232,8 @@ export function Topbar({ onMenu }) {
     api.notifications
       .list()
       .then((response) => {
-        if (mounted) setNotifications(toArray(response).map(normalizeNotification));
+        if (mounted)
+          setNotifications(applyStoredReadState(toArray(response).map(normalizeNotification)));
       })
       .catch(() => {
         if (mounted) setNotifications([]);
@@ -305,34 +333,43 @@ export function Topbar({ onMenu }) {
                 <Link
                   to="/notifications"
                   className="text-xs text-primary hover:underline"
-                  onClick={() => setOpenNotif(false)}
+                  onClick={() => {
+                    markNotificationsRead(notifications);
+                    setOpenNotif(false);
+                  }}
                 >
                   View all
                 </Link>
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {notifications.map((n, i) => (
-                  <div
+                  <button
                     key={i}
+                    type="button"
+                    onClick={() => openNotification(n)}
                     className={cn(
-                      "flex gap-3 border-b px-4 py-3 last:border-0",
+                      "flex w-full gap-3 border-b px-4 py-3 text-left last:border-0 transition-colors hover:bg-accent focus:bg-accent focus:outline-none",
                       !n.read && "bg-primary-soft/40",
                     )}
                   >
-                    <div
-                      className={cn(
-                        "mt-1 h-2 w-2 shrink-0 rounded-full",
-                        n.type === "success" && "bg-success",
-                        n.type === "info" && "bg-info",
-                        n.type === "warning" && "bg-warning",
-                      )}
-                    />
+                    {!n.read ? (
+                      <div
+                        className={cn(
+                          "mt-1 h-2 w-2 shrink-0 rounded-full",
+                          n.type === "success" && "bg-success",
+                          n.type === "info" && "bg-info",
+                          n.type === "warning" && "bg-warning",
+                        )}
+                      />
+                    ) : (
+                      <div className="mt-1 h-2 w-2 shrink-0" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{n.title}</div>
                       <div className="line-clamp-2 text-xs text-muted-foreground">{n.message}</div>
                       <div className="mt-1 text-[11px] text-muted-foreground">{n.time}</div>
                     </div>
-                  </div>
+                  </button>
                 ))}
                 {notifications.length === 0 && (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">
@@ -348,29 +385,29 @@ export function Topbar({ onMenu }) {
               <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-1.5 py-1 text-left transition-colors hover:bg-accent">
                 <Avatar className="h-7 w-7">
                   <AvatarFallback className="bg-gradient-primary text-xs text-primary-foreground">
-                    {isReceptionist ? "RC" : "SA"}
+                    {accountInitials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="hidden pr-2 sm:block">
-                  <div className="text-xs font-semibold leading-tight">
-                    {authUser?.name ?? (isReceptionist ? "Reception Desk" : "Sarah Adler")}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {isReceptionist ? "Receptionist" : "Super Admin"}
-                  </div>
+                  <div className="text-xs font-semibold leading-tight">{accountName}</div>
+                  <div className="text-[11px] text-muted-foreground">{accountRole}</div>
                 </div>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                Profile
+              <DropdownMenuItem asChild>
+                <Link to="/profile">
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <SettingsIcon className="mr-2 h-4 w-4" />
-                Settings
+              <DropdownMenuItem asChild>
+                <Link to="/settings">
+                  <SettingsIcon className="mr-2 h-4 w-4" />
+                  Settings
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
@@ -384,5 +421,54 @@ export function Topbar({ onMenu }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function formatRole(value) {
+  const role = String(value ?? "").toLowerCase();
+  if (role.includes("superadmin") || role.includes("super_admin")) return "Super Admin";
+  if (role.includes("reception")) return "Receptionist";
+  if (role.includes("doctor")) return "Doctor";
+  if (role.includes("patient")) return "Patient";
+  if (role.includes("admin")) return "Admin";
+  return "User";
+}
+
+function getInitials(name) {
+  const parts = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function getNotificationKey(notification) {
+  return String(
+    notification?.id ??
+      notification?._id ??
+      `${notification?.title ?? ""}|${notification?.message ?? ""}|${notification?.time ?? ""}`,
+  );
+}
+
+function getStoredReadNotificationKeys() {
+  if (typeof window === "undefined") return new Set();
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(READ_NOTIFICATIONS_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function storeReadNotificationKeys(readKeys) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(READ_NOTIFICATIONS_KEY, JSON.stringify([...readKeys]));
+}
+
+function applyStoredReadState(notifications) {
+  const readKeys = getStoredReadNotificationKeys();
+  return notifications.map((notification) =>
+    readKeys.has(getNotificationKey(notification)) ? { ...notification, read: true } : notification,
   );
 }

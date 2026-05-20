@@ -3,6 +3,13 @@ import { useState } from "react";
 import { Search, Filter, FileDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeLog } from "@/lib/api-normalizers";
@@ -20,18 +27,33 @@ const moduleColors = {
   System: "bg-muted text-muted-foreground",
 };
 function LogsPage() {
-  const [chips, setChips] = useState([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState({ user: "all", module: "all", action: "all" });
   const [q, setQ] = useState("");
   const {
     data: auditLogs,
     loading,
     error,
   } = useApiResource(async () => toArray(await api.logs.audit()).map(normalizeLog), [], []);
-  const filtered = auditLogs.filter(
-    (l) =>
-      l.action.toLowerCase().includes(q.toLowerCase()) ||
-      l.user.toLowerCase().includes(q.toLowerCase()),
-  );
+  const users = [...new Set(auditLogs.map((log) => log.user).filter(Boolean))];
+  const modules = [...new Set(auditLogs.map((log) => log.module).filter(Boolean))];
+  const actions = [...new Set(auditLogs.map((log) => log.action).filter(Boolean))];
+  const chips = [
+    filters.user !== "all" ? `User: ${filters.user}` : "",
+    filters.module !== "all" ? `Module: ${filters.module}` : "",
+    filters.action !== "all" ? `Action: ${filters.action}` : "",
+  ].filter(Boolean);
+  const filtered = auditLogs.filter((l) => {
+    const query = q.trim().toLowerCase();
+    const matchesSearch =
+      !query || [l.action, l.user, l.module, l.time, l.ip].join(" ").toLowerCase().includes(query);
+    return (
+      matchesSearch &&
+      (filters.user === "all" || l.user === filters.user) &&
+      (filters.module === "all" || l.module === filters.module) &&
+      (filters.action === "all" || l.action === filters.action)
+    );
+  });
   return (
     <>
       <PageHeader
@@ -57,18 +79,55 @@ function LogsPage() {
                 className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
               />
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setFiltersOpen((open) => !open)}
+            >
               <Filter className="h-4 w-4" />
               Filters
             </Button>
           </div>
+          {filtersOpen && (
+            <div className="grid gap-3 rounded-lg border border-border bg-secondary/40 p-3 md:grid-cols-4">
+              <FilterSelect
+                label="User"
+                value={filters.user}
+                options={users}
+                onChange={(value) => setFilters((current) => ({ ...current, user: value }))}
+              />
+              <FilterSelect
+                label="Module"
+                value={filters.module}
+                options={modules}
+                onChange={(value) => setFilters((current) => ({ ...current, module: value }))}
+              />
+              <FilterSelect
+                label="Action"
+                value={filters.action}
+                options={actions}
+                onChange={(value) => setFilters((current) => ({ ...current, action: value }))}
+              />
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setFilters({ user: "all", module: "all", action: "all" })}
+                >
+                  Clear filters
+                </Button>
+              </div>
+            </div>
+          )}
           {chips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Active filters:</span>
               {chips.map((c) => (
                 <button
                   key={c}
-                  onClick={() => setChips((p) => p.filter((x) => x !== c))}
+                  onClick={() => removeChip(c, setFilters)}
                   className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs font-medium hover:bg-accent"
                 >
                   {c}
@@ -125,4 +184,31 @@ function LogsPage() {
       </div>
     </>
   );
+}
+
+function FilterSelect({ label, value, options, onChange }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-9 bg-card">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All {label.toLowerCase()}s</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function removeChip(chip, setFilters) {
+  if (chip.startsWith("User: ")) setFilters((current) => ({ ...current, user: "all" }));
+  if (chip.startsWith("Module: ")) setFilters((current) => ({ ...current, module: "all" }));
+  if (chip.startsWith("Action: ")) setFilters((current) => ({ ...current, action: "all" }));
 }

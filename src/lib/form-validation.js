@@ -1,7 +1,10 @@
 const NAME_PATTERN = /^[A-Za-z][A-Za-z\s.'-]*$/;
-const EMAIL_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_%+-]|(?:\.(?=[A-Za-z0-9_%+-])))*@[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/;
+const EMAIL_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9_%+-]|(?:\.(?=[A-Za-z0-9_%+-])))*@[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/;
+const BLOCKED_TLDS = new Set(["cmm", "comm", "con", "coom", "cm", "om"]);
+const BLOCKED_EMAIL_DOMAINS = new Set(["hmail.com"]);
 export const EMAIL_INPUT_PATTERN =
-  "[A-Za-z0-9](?:[A-Za-z0-9_%+-]|(?:\\.(?=[A-Za-z0-9_%+-])))*@[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?)*\\.[A-Za-z]{2,}";
+  "[A-Za-z0-9._%+\\x2d]+@[A-Za-z0-9\\x2d]+(?:\\.[A-Za-z0-9\\x2d]+)+";
 const PHONE_LENGTH = 10;
 
 export function digitsOnly(value, maxLength = PHONE_LENGTH) {
@@ -14,8 +17,14 @@ export function lettersOnly(value) {
   return String(value ?? "").replace(/[^A-Za-z\s.'-]/g, "");
 }
 
+export function alphaNumericOnly(value) {
+  return String(value ?? "").replace(/[^A-Za-z0-9_.-]/g, "");
+}
+
 export function cleanEmail(value) {
-  return String(value ?? "").trim().replace(/\s/g, "");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s/g, "");
 }
 
 export function required(value, label) {
@@ -34,6 +43,7 @@ export function validateEmail(value, label = "Email") {
   const [localPart, domain = ""] = email.split("@");
   const domainLabels = domain.split(".");
   const primaryDomain = domainLabels.length >= 2 ? domainLabels.at(-2) : "";
+  const topLevelDomain = domainLabels.at(-1)?.toLowerCase() ?? "";
   if (!email) return `${label} is required`;
   if (
     !EMAIL_PATTERN.test(email) ||
@@ -45,10 +55,19 @@ export function validateEmail(value, label = "Email") {
     email.split("@").length !== 2 ||
     email.endsWith(".") ||
     primaryDomain.length < 3 ||
-    !/[A-Za-z]/.test(primaryDomain)
+    !/[A-Za-z]/.test(primaryDomain) ||
+    BLOCKED_TLDS.has(topLevelDomain) ||
+    BLOCKED_EMAIL_DOMAINS.has(domain.toLowerCase())
   ) {
-    return `Enter a valid professional ${label.toLowerCase()} address`;
+    return "Please enter a valid email address";
   }
+  return "";
+}
+
+export function validatePassword(value, label = "Password") {
+  const password = String(value ?? "");
+  if (!password) return `${label} is required`;
+  if (password.length < 6) return `${label} must be at least 6 characters`;
   return "";
 }
 
@@ -63,6 +82,35 @@ export function validateNumber(value, label) {
   const number = String(value ?? "").trim();
   if (!number) return `${label} is required`;
   if (!/^\d+$/.test(number)) return `${label} must contain numbers only`;
+  return "";
+}
+
+export function validateAddress(value, label = "Address") {
+  const address = String(value ?? "").trim();
+  if (!address) return `${label} is required`;
+  if (address.length < 5) return `${label} must be at least 5 characters`;
+  if (!/[A-Za-z]/.test(address)) return `${label} must include a meaningful location`;
+  if (!/[A-Za-z]{3,}/.test(address)) return `${label} must include a valid place or street name`;
+  return "";
+}
+
+export function validatePastOrTodayDate(value, label = "Date") {
+  if (!value) return `${label} is required`;
+  const selected = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (Number.isNaN(selected.getTime())) return `${label} is invalid`;
+  if (selected > today) return `${label} cannot be in the future`;
+  return "";
+}
+
+export function validateTodayOrFutureDate(value, label = "Date") {
+  if (!value) return `${label} is required`;
+  const selected = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (Number.isNaN(selected.getTime())) return `${label} is invalid`;
+  if (selected < today) return `${label} cannot be in the past`;
   return "";
 }
 

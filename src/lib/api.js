@@ -1,22 +1,28 @@
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 const TOKEN_KEY = "clinic_command_center_token";
 const USER_KEY = "clinic_command_center_user";
 
 export function getAuthToken() {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(TOKEN_KEY) ?? "";
+  return window.localStorage.getItem(TOKEN_KEY) ?? window.sessionStorage.getItem(TOKEN_KEY) ?? "";
 }
 
-export function setAuthToken(token) {
+export function hasAuthSession() {
+  return Boolean(getAuthToken() || getAuthUser());
+}
+
+export function setAuthToken(token, remember = true) {
   if (typeof window === "undefined" || !token) return;
-  window.localStorage.setItem(TOKEN_KEY, token);
+  const storage = remember ? window.localStorage : window.sessionStorage;
+  const otherStorage = remember ? window.sessionStorage : window.localStorage;
+  storage.setItem(TOKEN_KEY, token);
+  otherStorage.removeItem(TOKEN_KEY);
 }
 
 export function getAuthUser() {
   if (typeof window === "undefined") return null;
-  const value = window.localStorage.getItem(USER_KEY);
+  const value = window.localStorage.getItem(USER_KEY) ?? window.sessionStorage.getItem(USER_KEY);
   if (!value) return null;
   try {
     return JSON.parse(value);
@@ -25,15 +31,20 @@ export function getAuthUser() {
   }
 }
 
-export function setAuthUser(user) {
+export function setAuthUser(user, remember = true) {
   if (typeof window === "undefined" || !user) return;
-  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+  const storage = remember ? window.localStorage : window.sessionStorage;
+  const otherStorage = remember ? window.sessionStorage : window.localStorage;
+  storage.setItem(USER_KEY, JSON.stringify(user));
+  otherStorage.removeItem(USER_KEY);
 }
 
 export function clearAuthToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
+  window.sessionStorage.removeItem(TOKEN_KEY);
+  window.sessionStorage.removeItem(USER_KEY);
 }
 
 export function getPayload(response) {
@@ -58,9 +69,22 @@ export function readToken(response) {
     response?.token ??
     response?.accessToken ??
     response?.access_token ??
+    response?.authToken ??
+    response?.auth_token ??
+    response?.jwt ??
+    response?.jwtToken ??
+    response?.bearerToken ??
     response?.data?.token ??
     response?.data?.accessToken ??
     response?.data?.access_token ??
+    response?.data?.authToken ??
+    response?.data?.auth_token ??
+    response?.data?.jwt ??
+    response?.data?.jwtToken ??
+    response?.data?.bearerToken ??
+    response?.result?.token ??
+    response?.result?.accessToken ??
+    response?.result?.access_token ??
     ""
   );
 }
@@ -71,12 +95,29 @@ export function readUser(response) {
     payload?.user ??
     payload?.account ??
     payload?.profile ??
+    payload?.superAdmin ??
+    payload?.SuperAdmin ??
+    payload?.super_admin ??
     response?.user ??
     response?.data?.user ??
     response?.data?.account ??
     response?.data?.profile ??
+    response?.data?.superAdmin ??
+    response?.data?.SuperAdmin ??
+    response?.data?.super_admin ??
     null
   );
+}
+
+export function readField(source, keys, fallback = "") {
+  if (!source || typeof source !== "object") return fallback;
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return fallback;
 }
 
 export function readTokenPayload(token) {
@@ -141,6 +182,7 @@ function findRoleValue(value, depth = 0) {
 
 function normalizeRoleValue(value) {
   const role = value.toLowerCase().trim().replace(/\s+/g, "_");
+  if (role.includes("superadmin") || role.includes("super_admin")) return "superadmin";
   if (role.includes("reception")) return "receptionist";
   if (role.includes("doctor")) return "doctor";
   if (role.includes("patient")) return "patient";
@@ -193,6 +235,16 @@ function parseResponse(text) {
 
 const byId = (path, id) => `${path}/${encodeURIComponent(id)}`;
 const json = (method, body) => ({ method, body });
+const withQuery = (path, params = {}) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      query.set(key, value);
+    }
+  });
+  const text = query.toString();
+  return text ? `${path}?${text}` : path;
+};
 
 export const api = {
   admins: {
@@ -231,6 +283,40 @@ export const api = {
   notifications: {
     list: () => apiRequest("/api/notifications"),
     create: (data) => apiRequest("/api/notifications", json("POST", data)),
+  },
+  patients: {
+    list: () => apiRequest("/api/patients"),
+    create: (data) => apiRequest("/api/patients", json("POST", data)),
+    get: (id) => apiRequest(byId("/api/patients", id)),
+    update: (id, data) => apiRequest(byId("/api/patients", id), json("PUT", data)),
+    remove: (id) => apiRequest(byId("/api/patients", id), { method: "DELETE" }),
+  },
+  appointments: {
+    list: () => apiRequest("/api/appointments"),
+    create: (data) => apiRequest("/api/appointments", json("POST", data)),
+    get: (id) => apiRequest(byId("/api/appointments", id)),
+    today: () => apiRequest("/api/appointments/today"),
+    slots: (params) => apiRequest(withQuery("/api/appointments/slots", params)),
+    lockSlot: (data) => apiRequest("/api/appointments/lock-slot", json("POST", data)),
+    confirm: (id, data = {}) =>
+      apiRequest(`${byId("/api/appointments", id)}/confirm`, json("POST", data)),
+    complete: (id, data = {}) =>
+      apiRequest(`${byId("/api/appointments", id)}/complete`, json("PUT", data)),
+    noShow: (id, data = {}) =>
+      apiRequest(`${byId("/api/appointments", id)}/no-show`, json("PUT", data)),
+  },
+  billing: {
+    list: () => apiRequest("/api/billing"),
+    create: (data) => apiRequest("/api/billing", json("POST", data)),
+    get: (id) => apiRequest(byId("/api/billing", id)),
+    byAppointment: (appointmentId) =>
+      apiRequest(`${byId("/api/billing/by-appointment", appointmentId)}`),
+  },
+  receptionDashboard: {
+    summary: () => apiRequest("/api/reception-dashboard/summary"),
+    appointments: () => apiRequest("/api/reception-dashboard/appointments"),
+    queue: () => apiRequest("/api/reception-dashboard/queue"),
+    quickActions: () => apiRequest("/api/reception-dashboard/quick-actions"),
   },
   reports: {
     revenue: () => apiRequest("/api/revenue"),

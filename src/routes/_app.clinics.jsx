@@ -40,6 +40,7 @@ import {
   EMAIL_INPUT_PATTERN,
   firstError,
   lettersOnly,
+  validateAddress,
   validateEmail,
   validateName,
   validatePhone,
@@ -57,16 +58,20 @@ function ClinicsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const {
     data: clinics,
+    setData: setClinics,
     loading,
     error,
     reload,
   } = useApiResource(async () => toArray(await api.clinics.list()).map(normalizeClinic), [], []);
-  const filtered = clinics.filter(
-    (c) =>
-      (statusFilter === "all" || c.status === statusFilter) &&
-      (c.name.toLowerCase().includes(q.toLowerCase()) ||
-        c.location.toLowerCase().includes(q.toLowerCase())),
-  );
+  const filtered = clinics.filter((c) => {
+    const query = q.trim().toLowerCase();
+    const haystack = [c.name, c.location, c.address, c.email, c.contact, c.admins]
+      .join(" ")
+      .toLowerCase();
+    return (
+      (statusFilter === "all" || c.status === statusFilter) && (!query || haystack.includes(query))
+    );
+  });
   const createClinic = async (e) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -80,7 +85,7 @@ function ClinicsPage() {
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
       validateEmail(clinic.email),
-      clinic.address ? "" : "Address is required",
+      validateAddress(clinic.address, "Location"),
       validatePhone(clinic.contact, "Contact number"),
     ]);
     if (validationError) {
@@ -110,7 +115,7 @@ function ClinicsPage() {
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
       validateEmail(clinic.email),
-      clinic.address ? "" : "Address is required",
+      validateAddress(clinic.address, "Location"),
       validatePhone(clinic.contact, "Contact number"),
     ]);
     if (validationError) {
@@ -134,6 +139,22 @@ function ClinicsPage() {
       reload();
     } catch (err) {
       toast.error(err?.message ?? "Unable to delete clinic");
+    }
+  };
+  const updateClinicStatus = async (clinic, active) => {
+    const nextStatus = active ? "active" : "inactive";
+    setClinics((current) =>
+      current.map((item) => (item.id === clinic.id ? { ...item, status: nextStatus } : item)),
+    );
+    try {
+      await api.clinics.update(clinic.id, { ...clinic, isActive: active, status: nextStatus });
+      toast.success(`Clinic marked ${nextStatus}`);
+      reload();
+    } catch (err) {
+      setClinics((current) =>
+        current.map((item) => (item.id === clinic.id ? { ...item, status: clinic.status } : item)),
+      );
+      toast.error(err?.message ?? "Unable to update clinic status");
     }
   };
   return (
@@ -225,7 +246,14 @@ function ClinicsPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <StatusBadge status={c.status} />
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={c.status === "active"}
+                        onCheckedChange={(active) => updateClinicStatus(c, active)}
+                        aria-label={`Set ${c.name} status`}
+                      />
+                      <StatusBadge status={c.status} />
+                    </div>
                   </td>
                   <td className="px-5 py-3.5 text-right">
                     <DropdownMenu>
@@ -320,9 +348,9 @@ function ClinicsPage() {
               />
               <Field
                 name="address"
-                label="Address"
+                label="Location"
                 icon={MapPin}
-                placeholder="123 Main Street"
+                placeholder="123 Main Street, Hyderabad"
                 required
               />
               <Field
@@ -437,7 +465,7 @@ function ClinicsPage() {
                 />
                 <Field
                   name="address"
-                  label="Address"
+                  label="Location"
                   icon={MapPin}
                   defaultValue={editing.address}
                   required

@@ -42,7 +42,6 @@ const nav = [
 export function Sidebar({ open, onClose }) {
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
-  const activePanel = location.search?.panel ?? "dashboard";
   const role = getAuthUser()?.role?.toLowerCase?.() ?? "admin";
   const isReceptionist = role === "receptionist";
   const receptionistNav = [
@@ -50,9 +49,9 @@ export function Sidebar({ open, onClose }) {
       group: "Front Desk",
       items: [
         { to: "/reception", label: "Reception Dashboard", icon: ClipboardList },
-        { to: "/reception", label: "Add Patient", icon: UserPlus, panel: "patient" },
-        { to: "/reception", label: "Book Appointment", icon: CalendarPlus, panel: "appointment" },
-        { to: "/reception", label: "Billing", icon: ReceiptText, panel: "billing" },
+        { to: "/reception/patients", label: "Patients", icon: UserPlus },
+        { to: "/reception/appointments", label: "Book Appointment", icon: CalendarPlus },
+        { to: "/reception/billing", label: "Billing", icon: ReceiptText },
       ],
     },
   ];
@@ -94,13 +93,11 @@ export function Sidebar({ open, onClose }) {
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const active =
-                    path.startsWith(item.to) &&
-                    (!item.panel ? activePanel === "dashboard" : activePanel === item.panel);
+                    item.to === "/reception" ? path === item.to : path.startsWith(item.to);
                   return (
                     <li key={item.to}>
                       <Link
                         to={item.to}
-                        search={item.panel ? { panel: item.panel } : undefined}
                         onClick={onClose}
                         className={cn(
                           "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

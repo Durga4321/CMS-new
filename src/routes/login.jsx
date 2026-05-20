@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Stethoscope,
@@ -12,6 +12,7 @@ import {
   Users,
   User,
   Phone,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,19 +23,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, readRole, readToken, readUser, setAuthToken, setAuthUser } from "@/lib/api";
 import {
+  api,
+  readField,
+  readRole,
+  readToken,
+  readUser,
+  setAuthToken,
+  setAuthUser,
+  hasAuthSession,
+} from "@/lib/api";
+import {
+  alphaNumericOnly,
   cleanEmail,
   digitsOnly,
   EMAIL_INPUT_PATTERN,
   lettersOnly,
   validateEmail,
   validateName,
+  validatePassword,
   validatePhone,
 } from "@/lib/form-validation";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
+  beforeLoad: ({ search }) => {
+    if (typeof window === "undefined") return;
+    if (hasAuthSession() && !search?.redirect) {
+      throw redirectToStoredHome();
+    }
+  },
   component: LoginPage,
   head: () => ({ meta: [{ title: "Sign in - Medisuite Admin" }] }),
 });
@@ -46,8 +64,12 @@ const roles = [
   { label: "Patient", value: "patient" },
 ];
 
+const SUPER_ADMIN_EMAIL = "superadmin@gmail.com";
+const SUPER_ADMIN_FALLBACK_NAME = "DP";
+
 function LoginPage() {
   const nav = useNavigate();
+  const search = useSearch({ strict: false });
   const [mode, setMode] = useState("login");
   const [showPwd, setShowPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
@@ -64,6 +86,7 @@ function LoginPage() {
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   const isRegister = mode === "register";
 
@@ -74,6 +97,7 @@ function LoginPage() {
   const switchMode = (nextMode) => {
     setMode(nextMode);
     setErrors({});
+    setPassword("");
     setShowPwd(false);
     setShowConfirmPwd(false);
   };
@@ -87,18 +111,22 @@ function LoginPage() {
 
     const errs = {};
     const normalizedEmail = cleanEmail(email);
+    const isSuperAdminLogin = normalizedEmail === SUPER_ADMIN_EMAIL;
     if (normalizedEmail !== email) setEmail(normalizedEmail);
     const emailError = validateEmail(normalizedEmail);
     if (emailError) errs.email = emailError;
-    if (password.length < 6) errs.password = "Password must be at least 6 characters";
+    const passwordError = validatePassword(password);
+    if (passwordError) errs.password = passwordError;
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
     setLoading(true);
+    setErrors({});
     try {
-      const localUser = getRegisteredUser(normalizedEmail);
+      const localUser = isSuperAdminLogin ? null : getRegisteredUser(normalizedEmail);
       if (localUser) {
         if (localUser.password && localUser.password !== password) {
+          setErrors({ form: "Invalid email or password" });
           toast.error("Invalid email or password");
           return;
         }
@@ -110,38 +138,72 @@ function LoginPage() {
           role: normalizeRole(localUser.role) || "admin",
           name: localUser.name || localUser.username || normalizedEmail.split("@")[0],
         };
-        setAuthToken(`static-${Date.now()}`);
-        setAuthUser(authUser);
+        setAuthToken(`static-${Date.now()}`, rememberMe);
+        setAuthUser(authUser, rememberMe);
         toast.success("Welcome back!");
-        nav({ to: authUser.role === "receptionist" ? "/reception" : "/dashboard" });
+        nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
         return;
       }
 
       let response;
       try {
-        response = await api.auth.login({ email: normalizedEmail, password });
-      } catch {
-        response = await api.auth.superAdminLogin({ email: normalizedEmail, password });
+        response = isSuperAdminLogin
+          ? await api.auth.superAdminLogin({ email: normalizedEmail, password })
+          : await api.auth.login({ email: normalizedEmail, password });
+      } catch (err) {
+        if (!isMissingAuthEndpoint(err)) throw err;
+        if (isSuperAdminLogin) {
+          response = await api.auth.login({ email: normalizedEmail, password });
+        } else {
+          throw err;
+        }
       }
       const token = readToken(response);
-      if (token) setAuthToken(token);
       const savedUser = readUser(response);
-      const detectedRole = readRole(response, token) || "admin";
+      if (!token) {
+        throw new Error("Invalid email or password");
+      }
+      setAuthToken(token, rememberMe);
+      const safeSavedUser = savedUser && typeof savedUser === "object" ? { ...savedUser } : {};
+      delete safeSavedUser.password;
+      delete safeSavedUser.Password;
+      const detectedRole =
+        readRole(response, token) || (isSuperAdminLogin ? "superadmin" : "admin");
+      const savedName = [
+        safeSavedUser.firstName ?? safeSavedUser.first_name,
+        safeSavedUser.lastName ?? safeSavedUser.last_name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const backendName =
+        safeSavedUser.name ??
+        safeSavedUser.Name ??
+        safeSavedUser.fullName ??
+        safeSavedUser.FullName ??
+        safeSavedUser.displayName ??
+        safeSavedUser.DisplayName ??
+        safeSavedUser.username ??
+        safeSavedUser.Username ??
+        savedName;
       const authUser = {
-        email: normalizedEmail,
+        ...safeSavedUser,
+        email: readField(
+          safeSavedUser,
+          ["email", "Email", "username", "Username"],
+          normalizedEmail,
+        ),
         role: detectedRole,
         name:
-          savedUser?.name ??
-          savedUser?.fullName ??
-          localUser?.name ??
-          localUser?.username ??
-          normalizedEmail.split("@")[0],
+          backendName ||
+          (isSuperAdminLogin ? SUPER_ADMIN_FALLBACK_NAME : normalizedEmail.split("@")[0]),
       };
-      setAuthUser(authUser);
+      setAuthUser(authUser, rememberMe);
       toast.success("Welcome back!");
-      nav({ to: authUser.role === "receptionist" ? "/reception" : "/dashboard" });
+      nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
     } catch (err) {
-      toast.error(err?.message ?? "Unable to sign in");
+      const message = normalizeAuthError(err);
+      setErrors({ form: message });
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -163,7 +225,17 @@ function LoginPage() {
     if (phoneError) errs.phone = phoneError;
     const emailError = validateEmail(normalizedEmail);
     if (emailError) errs.email = emailError;
-    if (password.length < 6) errs.password = "Password must be at least 6 characters";
+    if (normalizedEmail === SUPER_ADMIN_EMAIL) {
+      errs.email = "Super admin already exists. Please sign in with the backend credentials.";
+    }
+    if (normalizeRole(account.role) === "superadmin") {
+      errs.role = "Super admin accounts cannot be created from public registration";
+    }
+    if (getRegisteredUser(normalizedEmail)) {
+      errs.email = "Email address already exists";
+    }
+    const passwordError = validatePassword(password);
+    if (passwordError) errs.password = passwordError;
     if (account.confirmPassword !== password) errs.confirmPassword = "Passwords do not match";
     if (!account.terms) errs.terms = "Please agree to terms and conditions";
     setErrors(errs);
@@ -264,7 +336,10 @@ function LoginPage() {
                   label="First Name"
                   icon={User}
                   value={account.firstName}
-                  onChange={(value) => updateAccount("firstName", lettersOnly(value))}
+                  onChange={(value) => {
+                    updateAccount("firstName", lettersOnly(value));
+                    clearFieldError(setErrors, "firstName");
+                  }}
                   placeholder="John"
                   error={errors.firstName}
                 />
@@ -272,7 +347,10 @@ function LoginPage() {
                   label="Last Name"
                   icon={User}
                   value={account.lastName}
-                  onChange={(value) => updateAccount("lastName", lettersOnly(value))}
+                  onChange={(value) => {
+                    updateAccount("lastName", lettersOnly(value));
+                    clearFieldError(setErrors, "lastName");
+                  }}
                   placeholder="Doe"
                   error={errors.lastName}
                 />
@@ -280,13 +358,19 @@ function LoginPage() {
                   label="Username"
                   icon={User}
                   value={account.username}
-                  onChange={(value) => updateAccount("username", value)}
+                  onChange={(value) => {
+                    updateAccount("username", alphaNumericOnly(value));
+                    clearFieldError(setErrors, "username");
+                  }}
                   placeholder="johndoe"
                   error={errors.username}
                 />
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Role</label>
-                  <Select value={account.role} onValueChange={(value) => updateAccount("role", value)}>
+                  <Select
+                    value={account.role}
+                    onValueChange={(value) => updateAccount("role", value)}
+                  >
                     <SelectTrigger className="h-11 rounded-lg border-input bg-card text-sm shadow-none focus:ring-2 focus:ring-ring/20">
                       <SelectValue placeholder="Select Role" />
                     </SelectTrigger>
@@ -305,7 +389,10 @@ function LoginPage() {
                   icon={Phone}
                   type="tel"
                   value={account.phone}
-                  onChange={(value) => updateAccount("phone", digitsOnly(value))}
+                  onChange={(value) => {
+                    updateAccount("phone", digitsOnly(value));
+                    clearFieldError(setErrors, "phone");
+                  }}
                   placeholder="Phone number"
                   error={errors.phone}
                   inputMode="numeric"
@@ -316,7 +403,10 @@ function LoginPage() {
                   icon={Mail}
                   type="email"
                   value={email}
-                  onChange={(value) => setEmail(cleanEmail(value))}
+                  onChange={(value) => {
+                    setEmail(cleanEmail(value));
+                    clearFieldError(setErrors, "email");
+                  }}
                   placeholder="Enter your email"
                   error={errors.email}
                   pattern={EMAIL_INPUT_PATTERN}
@@ -331,7 +421,10 @@ function LoginPage() {
                 icon={Mail}
                 type="email"
                 value={email}
-                onChange={(value) => setEmail(cleanEmail(value))}
+                onChange={(value) => {
+                  setEmail(cleanEmail(value));
+                  clearFieldError(setErrors, "email");
+                }}
                 placeholder="you@clinic.com"
                 error={errors.email}
                 pattern={EMAIL_INPUT_PATTERN}
@@ -345,7 +438,10 @@ function LoginPage() {
                   <label className="mb-1.5 block text-sm font-medium">Password</label>
                   <PasswordField
                     value={password}
-                    onChange={setPassword}
+                    onChange={(value) => {
+                      setPassword(value);
+                      clearFieldError(setErrors, "password");
+                    }}
                     showPassword={showPwd}
                     onToggle={() => setShowPwd((s) => !s)}
                     placeholder="Create password"
@@ -359,7 +455,10 @@ function LoginPage() {
                   <label className="mb-1.5 block text-sm font-medium">Confirm Password</label>
                   <PasswordField
                     value={account.confirmPassword}
-                    onChange={(value) => updateAccount("confirmPassword", value)}
+                    onChange={(value) => {
+                      updateAccount("confirmPassword", value);
+                      clearFieldError(setErrors, "confirmPassword");
+                    }}
                     showPassword={showConfirmPwd}
                     onToggle={() => setShowConfirmPwd((s) => !s)}
                     placeholder="Confirm password"
@@ -382,7 +481,10 @@ function LoginPage() {
                 </div>
                 <PasswordField
                   value={password}
-                  onChange={setPassword}
+                  onChange={(value) => {
+                    setPassword(value);
+                    clearFieldError(setErrors, "password");
+                  }}
                   showPassword={showPwd}
                   onToggle={() => setShowPwd((s) => !s)}
                 />
@@ -405,8 +507,18 @@ function LoginPage() {
               </div>
             ) : (
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox defaultChecked /> Keep me signed in for 30 days
+                <Checkbox
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(checked === true)}
+                />
+                Keep me signed in for 30 days
               </label>
+            )}
+
+            {errors.form && (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {errors.form}
+              </div>
             )}
 
             <Button
@@ -415,11 +527,10 @@ function LoginPage() {
               className="h-11 w-full bg-gradient-primary text-primary-foreground shadow-elev hover:opacity-95"
             >
               {loading ? (
-                isRegister ? (
-                  "Creating account..."
-                ) : (
-                  "Signing in..."
-                )
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {isRegister ? "Creating account..." : "Signing in..."}
+                </span>
               ) : (
                 <>
                   {isRegister ? "Register" : "Sign in"} <ArrowRight className="ml-1.5 h-4 w-4" />
@@ -428,7 +539,9 @@ function LoginPage() {
             </Button>
           </form>
 
-          <p className={`${isRegister ? "mt-4" : "mt-6"} text-center text-xs text-muted-foreground`}>
+          <p
+            className={`${isRegister ? "mt-4" : "mt-6"} text-center text-xs text-muted-foreground`}
+          >
             {isRegister ? "Already have account?" : "New to Medisuite?"}{" "}
             <button
               type="button"
@@ -445,7 +558,12 @@ function LoginPage() {
 }
 
 function normalizeRole(value) {
-  const role = String(value ?? "").toLowerCase().trim();
+  const role = String(value ?? "")
+    .toLowerCase()
+    .trim();
+  if (role.includes("superadmin") || role.includes("super admin") || role.includes("super_admin")) {
+    return "superadmin";
+  }
   if (role.includes("reception")) return "receptionist";
   if (role.includes("doctor")) return "doctor";
   if (role.includes("patient")) return "patient";
@@ -475,6 +593,59 @@ function rememberRegisteredUser(user) {
       JSON.stringify({ [user.email.toLowerCase()]: user }),
     );
   }
+}
+
+function normalizeAuthError(err) {
+  const message = String(err?.message ?? "").trim();
+  if (!message) return "Invalid email or password";
+  if (/401|403|unauthori[sz]ed|invalid|incorrect|credential|password/i.test(message)) {
+    return "Invalid email or password";
+  }
+  return message;
+}
+
+function isMissingAuthEndpoint(err) {
+  return err?.status === 404 || err?.status === 405;
+}
+
+function clearFieldError(setErrors, field) {
+  setErrors((current) => {
+    if (!current[field] && !current.form) return current;
+    const next = { ...current };
+    delete next[field];
+    delete next.form;
+    return next;
+  });
+}
+
+function resolvePostLoginPath(redirect, role) {
+  let path = String(redirect ?? "").trim();
+
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    try {
+      path = new URL(path).pathname + new URL(path).search;
+    } catch {
+      path = "";
+    }
+  }
+
+  if (path.startsWith("/") && !path.startsWith("/login")) return path;
+  return String(role ?? "").toLowerCase() === "receptionist" ? "/reception" : "/dashboard";
+}
+
+function redirectToStoredHome() {
+  const rawUser =
+    window.localStorage.getItem("clinic_command_center_user") ??
+    window.sessionStorage.getItem("clinic_command_center_user");
+  let role = "";
+  try {
+    role = JSON.parse(rawUser)?.role ?? "";
+  } catch {
+    role = "";
+  }
+  return redirect({
+    to: String(role).toLowerCase() === "receptionist" ? "/reception" : "/dashboard",
+  });
 }
 
 function TextField({

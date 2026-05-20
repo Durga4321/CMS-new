@@ -112,6 +112,117 @@ export function normalizeLog(item, index = 0) {
   };
 }
 
+export function normalizePatient(item, index = 0) {
+  item = item ?? {};
+  if (item.patient && typeof item.patient === "object") item = item.patient;
+  const firstName = item.firstName ?? item.first_name;
+  const lastName = item.lastName ?? item.last_name;
+  const name = item.name ?? item.fullName ?? [firstName, lastName].filter(Boolean).join(" ");
+  return {
+    ...item,
+    id: text(
+      item.id ?? item._id ?? item.patientId ?? item.patient_id ?? item.pid,
+      `PID-${index + 1}`,
+    ),
+    patientId: text(item.patientId ?? item.patient_id ?? item.pid ?? item.id, `PID-${index + 1}`),
+    name: text(name, "Unnamed patient"),
+    age: text(item.age, ""),
+    dob: text(item.dob ?? item.dateOfBirth ?? item.date_of_birth, ""),
+    gender: text(item.gender, "Female"),
+    type: text(item.type ?? item.patientType ?? item.patient_type, "OPD"),
+    phone: text(item.phone ?? item.mobile ?? item.mobileNumber ?? item.mobile_number, ""),
+    email: text(item.email, ""),
+    street: text(item.street ?? item.address ?? item.streetAddress ?? item.street_address, ""),
+    city: text(item.city, ""),
+    state: text(item.state, ""),
+    pinCode: text(item.pinCode ?? item.pincode ?? item.pin_code ?? item.zipCode, ""),
+    emergencyName: text(
+      item.emergencyName ?? item.emergencyContactName ?? item.emergency_contact_name,
+      "",
+    ),
+    emergencyPhone: text(
+      item.emergencyPhone ??
+        item.emergencyContactPhone ??
+        item.emergency_contact_phone ??
+        item.emergencyContactMobileNumber,
+      "",
+    ),
+    chronicDiseases: normalizeStringList(item.chronicDiseases ?? item.chronic_diseases),
+  };
+}
+
+export function normalizeAppointment(item, index = 0) {
+  item = item ?? {};
+  const patientObject = item.patient && typeof item.patient === "object" ? item.patient : null;
+  const patientName =
+    item.patientName ??
+    item.patient_name ??
+    patientObject?.name ??
+    patientObject?.fullName ??
+    item.patient;
+  const doctorObject = item.doctor && typeof item.doctor === "object" ? item.doctor : null;
+  const doctorName =
+    item.doctorName ??
+    item.doctor_name ??
+    doctorObject?.name ??
+    doctorObject?.fullName ??
+    item.doctor;
+  return {
+    ...item,
+    id: text(item.id ?? item._id ?? item.appointmentId ?? item.appointment_id, `APT-${index + 1}`),
+    patientId: text(
+      item.patientId ?? item.patient_id ?? patientObject?.id ?? patientObject?._id,
+      "",
+    ),
+    patient: text(patientName, "Unnamed patient"),
+    doctor: text(doctorName, "Doctor not assigned"),
+    date: text(item.date ?? item.appointmentDate ?? item.appointment_date, ""),
+    time: text(item.time ?? item.slot ?? item.appointmentTime ?? item.appointment_time, ""),
+    status: normalizeAppointmentStatus(item.status ?? item.appointmentStatus),
+  };
+}
+
+export function normalizeBill(item, index = 0) {
+  item = item ?? {};
+  const patientObject = item.patient && typeof item.patient === "object" ? item.patient : null;
+  return {
+    ...item,
+    id: text(item.id ?? item._id ?? item.billId ?? item.invoiceId, `INV-${index + 1}`),
+    appointmentId: text(item.appointmentId ?? item.appointment_id ?? item.appointment?.id, ""),
+    patientId: text(
+      item.patientId ?? item.patient_id ?? patientObject?.id ?? patientObject?._id,
+      "",
+    ),
+    patient: text(item.patientName ?? item.patient_name ?? patientObject?.name ?? item.patient, ""),
+    consultation: Number(
+      item.consultation ?? item.consultationCharge ?? item.consultation_charge ?? 0,
+    ),
+    medicines: Number(item.medicines ?? item.medicineCharges ?? item.medicine_charges ?? 0),
+    lab: Number(item.lab ?? item.labCharges ?? item.lab_charges ?? 0),
+    total: Number(item.total ?? item.totalAmount ?? item.total_amount ?? item.amount ?? 0),
+    mode: text(item.mode ?? item.paymentMode ?? item.payment_mode, "UPI"),
+    status: text(item.status ?? item.paymentStatus ?? item.payment_status, "Pending"),
+    createdAt: text(item.createdAt ?? item.created_at, ""),
+  };
+}
+
+export function normalizeReceptionSummary(response) {
+  const data = getPayload(response) ?? {};
+  return {
+    todaysAppointments: Number(
+      data.todaysAppointments ??
+        data.todayAppointments ??
+        data.appointmentsToday ??
+        data.appointments ??
+        0,
+    ),
+    waitingPatients: Number(data.waitingPatients ?? data.waiting ?? data.queue ?? 0),
+    completedAppointments: Number(
+      data.completedAppointments ?? data.completed ?? data.consulted ?? data.paid ?? 0,
+    ),
+  };
+}
+
 export function normalizeActivity(item, index = 0) {
   return {
     id: text(item.id ?? item._id ?? `activity-${index + 1}`),
@@ -213,4 +324,26 @@ function trend(value) {
     .startsWith("-")
     ? "down"
     : "up";
+}
+
+function normalizeAppointmentStatus(value) {
+  const status = String(value ?? "Waiting").toLowerCase();
+  if (status.includes("paid")) return "Paid";
+  if (status.includes("consult") || status.includes("complete")) return "Consulted";
+  if (status.includes("no") && status.includes("show")) return "No-show";
+  if (status.includes("cancel")) return "No-show";
+  if (status.includes("wait") || status.includes("book") || status.includes("confirm"))
+    return "Waiting";
+  return text(value, "Waiting");
+}
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
 }

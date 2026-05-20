@@ -9,6 +9,16 @@ import { Switch } from "@/components/ui/switch";
 import { api, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeUser } from "@/lib/api-normalizers";
+import {
+  alphaNumericOnly,
+  cleanEmail,
+  digitsOnly,
+  firstError,
+  lettersOnly,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/form-validation";
 import { toast } from "sonner";
 export const Route = createFileRoute("/_app/users")({
   component: UsersPage,
@@ -18,8 +28,10 @@ function UsersPage() {
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState(null);
+  const [editing, setEditing] = useState(false);
   const {
     data: users,
+    setData: setUsers,
     loading,
     error,
     reload,
@@ -37,12 +49,60 @@ function UsersPage() {
     pending: users.filter((u) => u.status === "pending").length,
   };
   const updateStatus = async (user, active) => {
+    const nextStatus = active ? "active" : "inactive";
+    setUsers((current) =>
+      current.map((item) => (item.id === user.id ? { ...item, status: nextStatus } : item)),
+    );
+    setSelected((current) =>
+      current?.id === user.id ? { ...current, status: nextStatus } : current,
+    );
     try {
-      await api.users.updateStatus(user.id, { status: active ? "active" : "inactive" });
+      await api.users.updateStatus(user.id, { status: nextStatus });
       toast.success("User status updated");
       reload();
     } catch (err) {
+      setUsers((current) =>
+        current.map((item) => (item.id === user.id ? { ...item, status: user.status } : item)),
+      );
+      setSelected((current) =>
+        current?.id === user.id ? { ...current, status: user.status } : current,
+      );
       toast.error(err?.message ?? "Unable to update user");
+    }
+  };
+  const saveUser = async (event) => {
+    event.preventDefault();
+    if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    const nextUser = {
+      ...selected,
+      name: String(form.get("name") ?? "").trim(),
+      email: cleanEmail(form.get("email")),
+      phone: digitsOnly(form.get("phone")),
+      clinic: String(form.get("clinic") ?? "").trim(),
+      role: String(form.get("role") ?? "").trim(),
+    };
+    const errorMessage = firstError([
+      validateName(nextUser.name, "User name"),
+      validateEmail(nextUser.email),
+      validatePhone(nextUser.phone),
+      nextUser.clinic ? "" : "Clinic is required",
+      nextUser.role ? "" : "Role is required",
+    ]);
+    if (errorMessage) {
+      toast.error(errorMessage);
+      return;
+    }
+    setUsers((current) => current.map((item) => (item.id === selected.id ? nextUser : item)));
+    setSelected(nextUser);
+    try {
+      await api.users.update(selected.id, nextUser);
+      setEditing(false);
+      toast.success("User updated");
+      reload();
+    } catch (err) {
+      toast.error(err?.message ?? "Unable to update user");
+      reload();
     }
   };
   return (
@@ -155,7 +215,15 @@ function UsersPage() {
         </div>
       </div>
 
-      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(o) => {
+          if (!o) {
+            setSelected(null);
+            setEditing(false);
+          }
+        }}
+      >
         <SheetContent className="w-full sm:max-w-md">
           {selected && (
             <>
@@ -181,12 +249,53 @@ function UsersPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-4">
-                  <Row icon={Mail} label="Email" value={selected.email} />
-                  <Row icon={Phone} label="Phone" value={selected.phone} />
-                  <Row icon={MapPin} label="Clinic" value={selected.clinic} />
-                  <Row icon={Calendar} label="Member since" value={selected.memberSince} />
-                </div>
+                {editing ? (
+                  <form onSubmit={saveUser} className="space-y-3">
+                    <EditField
+                      name="name"
+                      label="Name"
+                      defaultValue={selected.name}
+                      dataKind="letters"
+                    />
+                    <EditField
+                      name="email"
+                      label="Email"
+                      type="email"
+                      defaultValue={selected.email}
+                    />
+                    <EditField
+                      name="phone"
+                      label="Phone"
+                      type="tel"
+                      defaultValue={digitsOnly(selected.phone)}
+                      maxLength={10}
+                      inputMode="numeric"
+                      dataKind="numbers"
+                    />
+                    <EditField name="clinic" label="Clinic" defaultValue={selected.clinic} />
+                    <EditField name="role" label="Role" defaultValue={selected.role} />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setEditing(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="flex-1">
+                        Save changes
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-4">
+                    <Row icon={Mail} label="Email" value={selected.email} />
+                    <Row icon={Phone} label="Phone" value={selected.phone} />
+                    <Row icon={MapPin} label="Clinic" value={selected.clinic} />
+                    <Row icon={Calendar} label="Member since" value={selected.memberSince} />
+                  </div>
+                )}
 
                 <div>
                   <h4 className="mb-2 text-sm font-semibold">Activity history</h4>
@@ -213,10 +322,15 @@ function UsersPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setEditing(true)}>
                     Edit
                   </Button>
-                  <Button variant="destructive" className="flex-1">
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => updateStatus(selected, false)}
+                    disabled={selected.status === "inactive"}
+                  >
                     Deactivate
                   </Button>
                 </div>
@@ -226,6 +340,27 @@ function UsersPage() {
         </SheetContent>
       </Sheet>
     </>
+  );
+}
+function EditField({ label, dataKind, onInput, ...props }) {
+  const handleInput = (event) => {
+    if (dataKind === "letters") event.currentTarget.value = lettersOnly(event.currentTarget.value);
+    if (dataKind === "numbers") event.currentTarget.value = digitsOnly(event.currentTarget.value);
+    if (dataKind === "alphanumeric") {
+      event.currentTarget.value = alphaNumericOnly(event.currentTarget.value);
+    }
+    onInput?.(event);
+  };
+
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm font-medium">{label}</label>
+      <input
+        {...props}
+        onInput={handleInput}
+        className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+      />
+    </div>
   );
 }
 function Row({ icon: Icon, label, value }) {

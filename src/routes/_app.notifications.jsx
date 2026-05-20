@@ -32,6 +32,7 @@ export const Route = createFileRoute("/_app/notifications")({
   head: () => ({ meta: [{ title: "Notifications — Medisuite" }] }),
 });
 const typeIcons = { success: CheckCircle2, warning: AlertTriangle, info: Info };
+const READ_NOTIFICATIONS_KEY = "clinic_command_center_read_notifications";
 const targetOptions = [
   { label: "All admins", value: "admins" },
   { label: "All users", value: "users" },
@@ -40,15 +41,19 @@ const targetOptions = [
 ];
 function NotificationsPage() {
   const [open, setOpen] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [readSynced, setReadSynced] = useState(false);
   const [targetType, setTargetType] = useState("admins");
   const [targetId, setTargetId] = useState("");
   const {
     data: notifications,
+    setData: setNotifications,
     loading,
     error,
     reload,
   } = useApiResource(
-    async () => toArray(await api.notifications.list()).map(normalizeNotification),
+    async () =>
+      applyStoredReadState(toArray(await api.notifications.list()).map(normalizeNotification)),
     [],
     [],
   );
@@ -114,6 +119,16 @@ function NotificationsPage() {
     }
   }, [open, reloadAdmins, reloadClinics, reloadUsers]);
 
+  useEffect(() => {
+    if (!readSynced && notifications.length) {
+      markNotificationsRead(notifications);
+      setReadSynced(true);
+      if (notifications.some((notification) => !notification.read)) {
+        reload();
+      }
+    }
+  }, [notifications, readSynced, reload]);
+
   const sendNotification = async (e) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -157,6 +172,17 @@ function NotificationsPage() {
       toast.error(err?.message ?? "Unable to send notification");
     }
   };
+  const openNotification = (notification) => {
+    markNotificationsRead([notification]);
+    setNotifications((current) =>
+      current.map((item) =>
+        getNotificationKey(item) === getNotificationKey(notification)
+          ? { ...item, read: true }
+          : item,
+      ),
+    );
+    setSelectedNotification({ ...notification, read: true });
+  };
   return (
     <>
       <PageHeader
@@ -186,27 +212,33 @@ function NotificationsPage() {
                 <li
                   key={n.id}
                   className={cn(
-                    "flex gap-4 border-b border-border p-5 last:border-0 transition-colors hover:bg-secondary/40",
+                    "border-b border-border last:border-0 transition-colors hover:bg-secondary/40",
                     !n.read && "bg-primary-soft/20",
                   )}
                 >
-                  <div
-                    className={cn(
-                      "grid h-10 w-10 shrink-0 place-items-center rounded-lg",
-                      n.type === "success" && "bg-success/10 text-success",
-                      n.type === "warning" && "bg-warning/15 text-warning-foreground",
-                      n.type === "info" && "bg-info/10 text-info",
-                    )}
+                  <button
+                    type="button"
+                    onClick={() => openNotification(n)}
+                    className="flex w-full gap-4 p-5 text-left focus:bg-secondary/40 focus:outline-none"
                   >
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="font-medium">{n.title}</div>
-                      <span className="shrink-0 text-xs text-muted-foreground">{n.time}</span>
+                    <div
+                      className={cn(
+                        "grid h-10 w-10 shrink-0 place-items-center rounded-lg",
+                        n.type === "success" && "bg-success/10 text-success",
+                        n.type === "warning" && "bg-warning/15 text-warning-foreground",
+                        n.type === "info" && "bg-info/10 text-info",
+                      )}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
-                    <p className="mt-0.5 text-sm text-muted-foreground">{n.message}</p>
-                  </div>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-medium">{n.title}</div>
+                        <span className="shrink-0 text-xs text-muted-foreground">{n.time}</span>
+                      </div>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{n.message}</p>
+                    </div>
+                  </button>
                 </li>
               );
             })}
@@ -358,6 +390,68 @@ function NotificationsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={!!selectedNotification}
+        onOpenChange={(nextOpen) => !nextOpen && setSelectedNotification(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedNotification?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">{selectedNotification?.message}</p>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs">
+              <span className="text-muted-foreground">Type</span>
+              <span className="font-medium capitalize">{selectedNotification?.type}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs">
+              <span className="text-muted-foreground">Time</span>
+              <span className="font-medium">{selectedNotification?.time || "Not provided"}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setSelectedNotification(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function getNotificationKey(notification) {
+  return String(
+    notification?.id ??
+      notification?._id ??
+      `${notification?.title ?? ""}|${notification?.message ?? ""}|${notification?.time ?? ""}`,
+  );
+}
+
+function getStoredReadNotificationKeys() {
+  if (typeof window === "undefined") return new Set();
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(READ_NOTIFICATIONS_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function storeReadNotificationKeys(readKeys) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(READ_NOTIFICATIONS_KEY, JSON.stringify([...readKeys]));
+}
+
+function markNotificationsRead(notifications) {
+  const readKeys = getStoredReadNotificationKeys();
+  notifications.forEach((notification) => readKeys.add(getNotificationKey(notification)));
+  storeReadNotificationKeys(readKeys);
+}
+
+function applyStoredReadState(notifications) {
+  const readKeys = getStoredReadNotificationKeys();
+  return notifications.map((notification) =>
+    readKeys.has(getNotificationKey(notification)) ? { ...notification, read: true } : notification,
   );
 }

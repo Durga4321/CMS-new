@@ -8,9 +8,13 @@ import { Route as AppUsersRouteImport } from "./routes/_app.users";
 import { Route as AppSettingsRouteImport } from "./routes/_app.settings";
 import { Route as AppRolesRouteImport } from "./routes/_app.roles";
 import { Route as AppReportsRouteImport } from "./routes/_app.reports";
+import { Route as AppProfileRouteImport } from "./routes/_app.profile";
 import { Route as AppNotificationsRouteImport } from "./routes/_app.notifications";
 import { Route as AppLogsRouteImport } from "./routes/_app.logs";
 import { Route as AppReceptionRouteImport } from "./routes/_app.reception";
+import { Route as AppReceptionPatientsRouteImport } from "./routes/_app.reception.patients";
+import { Route as AppReceptionAppointmentsRouteImport } from "./routes/_app.reception.appointments";
+import { Route as AppReceptionBillingRouteImport } from "./routes/_app.reception.billing";
 import { Route as AppDashboardRouteImport } from "./routes/_app.dashboard";
 import { Route as AppClinicsRouteImport } from "./routes/_app.clinics";
 import { Route as AppAdminsRouteImport } from "./routes/_app.admins";
@@ -68,6 +72,12 @@ const AppReportsRoute = AppReportsRouteImport.update({
   getParentRoute: () => AppRoute,
 });
 
+const AppProfileRoute = AppProfileRouteImport.update({
+  id: "/profile",
+  path: "/profile",
+  getParentRoute: () => AppRoute,
+});
+
 const AppNotificationsRoute = AppNotificationsRouteImport.update({
   id: "/notifications",
   path: "/notifications",
@@ -83,6 +93,24 @@ const AppLogsRoute = AppLogsRouteImport.update({
 const AppReceptionRoute = AppReceptionRouteImport.update({
   id: "/reception",
   path: "/reception",
+  getParentRoute: () => AppRoute,
+});
+
+const AppReceptionPatientsRoute = AppReceptionPatientsRouteImport.update({
+  id: "/reception/patients",
+  path: "/reception/patients",
+  getParentRoute: () => AppRoute,
+});
+
+const AppReceptionAppointmentsRoute = AppReceptionAppointmentsRouteImport.update({
+  id: "/reception/appointments",
+  path: "/reception/appointments",
+  getParentRoute: () => AppRoute,
+});
+
+const AppReceptionBillingRoute = AppReceptionBillingRouteImport.update({
+  id: "/reception/billing",
+  path: "/reception/billing",
   getParentRoute: () => AppRoute,
 });
 
@@ -109,8 +137,12 @@ const AppRouteChildren = {
   AppClinicsRoute,
   AppDashboardRoute,
   AppReceptionRoute,
+  AppReceptionPatientsRoute,
+  AppReceptionAppointmentsRoute,
+  AppReceptionBillingRoute,
   AppLogsRoute,
   AppNotificationsRoute,
+  AppProfileRoute,
   AppReportsRoute,
   AppRolesRoute,
   AppSettingsRoute,
