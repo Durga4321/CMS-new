@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Mail,
-  MailCheck,
   ShieldCheck,
   Stethoscope,
   Users,
@@ -23,7 +22,6 @@ export const Route = createFileRoute("/forgot-password")({
 function ForgotPasswordPage() {
   const nav = useNavigate();
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
@@ -34,11 +32,26 @@ function ForgotPasswordPage() {
     if (emailError) return toast.error(emailError);
     setLoading(true);
     try {
-      await api.auth.forgotPassword({ email: normalizedEmail });
-      setSent(true);
-      setTimeout(() => nav({ to: "/reset-password" }), 1500);
+      const payload = { email: normalizedEmail };
+      console.log("Sending forgot password request with payload:", payload);
+      const response = await api.auth.forgotPassword(payload);
+      const resetToken =
+        response?.token ||
+        response?.resetToken ||
+        response?.reset_token ||
+        response?.data?.token ||
+        response?.data?.resetToken ||
+        response?.data?.reset_token ||
+        "";
+      toast.success("OTP sent to your email");
+      const query = resetToken
+        ? `?token=${encodeURIComponent(resetToken)}`
+        : `?email=${encodeURIComponent(normalizedEmail)}`;
+      setTimeout(() => nav({ to: `/reset-password${query}` }), 1200);
     } catch (err) {
-      toast.error(err?.message ?? "Unable to send recovery link");
+      console.error("Forgot password error:", err);
+      const errorMsg = err?.data?.message || err?.message || "Unable to send OTP";
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -52,65 +65,52 @@ function ForgotPasswordPage() {
         <div className="w-full max-w-md animate-slide-up">
           <MobileBrand />
 
-          {!sent ? (
-            <>
-              <h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                Enter the email associated with your account and we'll send a recovery link.
-              </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Forgot Password</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Enter your registered email to receive OTP.
+          </p>
 
-              <form onSubmit={submit} className="mt-8 space-y-5">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">Email address</label>
-                  <div className="relative">
-                    <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(cleanEmail(e.target.value))}
-                      pattern={EMAIL_INPUT_PATTERN}
-                      title="Use a professional email such as name@clinicname.com"
-                      className="h-11 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-                      placeholder="you@clinic.com"
-                    />
-                  </div>
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="h-11 w-full bg-gradient-primary text-primary-foreground shadow-elev hover:opacity-95"
-                >
-                  {loading ? (
-                    "Sending..."
-                  ) : (
-                    <>
-                      Send recovery link <ArrowRight className="ml-1.5 h-4 w-4" />
-                    </>
-                  )}
-                </Button>
-              </form>
-            </>
-          ) : (
-            <div className="py-4 text-center">
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10 text-success">
-                <MailCheck className="h-7 w-7" />
+          <form onSubmit={submit} className="mt-8 space-y-5">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Email address</label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(cleanEmail(e.target.value))}
+                  pattern={EMAIL_INPUT_PATTERN}
+                  title="Use a professional email such as name@clinicname.com"
+                  className="h-11 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                  placeholder="you@clinic.com"
+                />
               </div>
-              <h1 className="mt-4 text-2xl font-semibold tracking-tight">Check your inbox</h1>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                We sent a recovery link to{" "}
-                <span className="font-medium text-foreground">{email}</span>.
-              </p>
-              <p className="mt-3 text-xs text-muted-foreground">Redirecting to reset page...</p>
             </div>
-          )}
 
-          <Link
-            to="/login"
-            className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to sign in
-          </Link>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="h-11 w-full bg-gradient-primary text-primary-foreground shadow-elev hover:opacity-95"
+            >
+              {loading ? (
+                "Sending..."
+              ) : (
+                <>
+                  Send OTP <ArrowRight className="ml-1.5 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <span className="text-sm text-muted-foreground">Remembered your password? </span>
+            <Link
+              to="/login"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Back to Login
+            </Link>
+          </div>
         </div>
       </div>
     </div>

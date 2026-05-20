@@ -213,20 +213,28 @@ function ReceptionPatientsPage() {
         description="Manage patients: add new patients, view existing details, update records, or remove outdated entries."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" className="gap-1.5" onClick={() => setMode("create")}>
-              <Plus className="h-4 w-4" />
-              Add Patient
-            </Button>
-            <Button variant="ghost" className="gap-1.5" onClick={() => reload()}>
-              <RefreshCcw className="h-4 w-4" />
-              Refresh
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/reception">
-                <ArrowLeft className="mr-1.5 h-4 w-4" />
-                Dashboard
-              </Link>
-            </Button>
+        <Button
+          variant="outline"
+          className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
+          onClick={() => setMode("create")}
+        >
+          <Plus className="h-4 w-4" />
+          Add Patient
+        </Button>
+        <Button variant="ghost" className="gap-1.5" onClick={() => reload()}>
+          <RefreshCcw className="h-4 w-4" />
+          Refresh
+        </Button>
+        <Button
+          variant="outline"
+          className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
+          asChild
+        >
+          <Link to="/reception">
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
+            Dashboard
+          </Link>
+        </Button>
           </div>
         }
       />
@@ -250,8 +258,17 @@ function ReceptionPatientsPage() {
               <p className="text-sm text-muted-foreground">View, edit, or delete registered patients.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => setMode("create")}>Add Patient</Button>
-              <Button variant="ghost" size="sm" onClick={() => reload()}>Refresh</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
+                onClick={() => setMode("create")}
+              >
+                Add Patient
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => reload()}>
+                Refresh
+              </Button>
             </div>
           </div>
           <div className="overflow-hidden rounded-lg border border-border">
@@ -262,7 +279,7 @@ function ReceptionPatientsPage() {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Phone</th>
                   <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Age</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -325,12 +342,26 @@ function ReceptionPatientsPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <DetailItem label="PID" value={selectedPatient.id} />
               <DetailItem label="Name" value={selectedPatient.name} />
+              <DetailItem label="Age" value={selectedPatient.age ? `${selectedPatient.age} yrs` : "-"} />
+              <DetailItem label="Gender" value={selectedPatient.gender || "-"} />
+              <DetailItem label="Type" value={selectedPatient.type || "-"} />
+              <DetailItem label="Date of Birth" value={selectedPatient.dob || "-"} />
               <DetailItem label="Phone" value={selectedPatient.phone || "-"} />
               <DetailItem label="Email" value={selectedPatient.email || "-"} />
-              <DetailItem label="Age" value={selectedPatient.age || "-"} />
-              <DetailItem label="Type" value={selectedPatient.type || "-"} />
               <DetailItem label="Address" value={selectedPatient.street ? `${selectedPatient.street}, ${selectedPatient.city}, ${selectedPatient.state}, ${selectedPatient.pinCode}` : "-"} />
               <DetailItem label="Emergency Contact" value={selectedPatient.emergencyName ? `${selectedPatient.emergencyName} · ${selectedPatient.emergencyPhone}` : "-"} />
+              <DetailItem label="Allergies" value={[selectedPatient.drugAllergies, selectedPatient.foodAllergies, selectedPatient.environmentalAllergies].filter(Boolean).join(", ") || "-"} />
+              <DetailItem label="Chronic Diseases" value={(selectedPatient.chronicDiseases || []).join(", ") || "-"} />
+            </div>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <DetailItem label="Other chronic illnesses" value={selectedPatient.otherChronic || "-"} />
+              <DetailItem label="Current Medications" value={[selectedPatient.medicationName, selectedPatient.medicationDosage, selectedPatient.medicationFrequency].filter(Boolean).join(" | ") || "-"} />
+              <DetailItem label="Surgery History" value={[selectedPatient.surgeryName, selectedPatient.surgeryYear].filter(Boolean).join(" - ") || "-"} />
+              <DetailItem label="Previous Visit Date" value={selectedPatient.previousVisitDate || "-"} />
+              <DetailItem label="Previous Doctor" value={selectedPatient.previousDoctor || "-"} />
+              <DetailItem label="Symptoms / Complaint" value={selectedPatient.previousComplaint || "-"} />
+              <DetailItem label="Diagnosis Summary" value={selectedPatient.previousDiagnosis || "-"} />
+              <DetailItem label="Treatment Given" value={selectedPatient.previousTreatment || "-"} />
             </div>
           </section>
         )}

@@ -630,7 +630,8 @@ function resolvePostLoginPath(redirect, role) {
   }
 
   if (path.startsWith("/") && !path.startsWith("/login")) return path;
-  return String(role ?? "").toLowerCase() === "receptionist" ? "/reception" : "/dashboard";
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === "receptionist" ? "/reception" : "/dashboard";
 }
 
 function redirectToStoredHome() {
@@ -644,7 +645,7 @@ function redirectToStoredHome() {
     role = "";
   }
   return redirect({
-    to: String(role).toLowerCase() === "receptionist" ? "/reception" : "/dashboard",
+    to: normalizeRole(role) === "receptionist" ? "/reception" : "/dashboard",
   });
 }
 

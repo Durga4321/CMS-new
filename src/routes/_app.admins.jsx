@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Plus,
   Search,
@@ -57,6 +57,9 @@ function AdminsPage() {
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [q, setQ] = useState("");
+  const [newAdminRole, setNewAdminRole] = useState("");
+  const [newAdminClinic, setNewAdminClinic] = useState("");
+
   const { data, loading, error, reload } = useApiResource(
     async () => {
       const [adminsResponse, clinicsResponse, rolesResponse] = await Promise.all([
@@ -74,6 +77,17 @@ function AdminsPage() {
     [],
   );
   const { admins, clinics, roles } = data;
+
+  useEffect(() => {
+    if (!open) return;
+    const adminRoleName =
+      roles
+        .map((r) => String(r.name ?? "").trim())
+        .find((name) => /^admin$/i.test(name));
+    setNewAdminRole(adminRoleName || "Admin");
+    setNewAdminClinic(clinics[0]?.name || "");
+  }, [open, roles, clinics]);
+
   const filtered = admins.filter(
     (a) =>
       a.name.toLowerCase().includes(q.toLowerCase()) ||
@@ -303,22 +317,34 @@ function AdminsPage() {
               />
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Role</label>
-                <Select name="role" defaultValue={roles[0]?.name}>
+                <Select name="role" value={newAdminRole} onValueChange={setNewAdminRole}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((r) => (
-                      <SelectItem key={r.name} value={r.name}>
-                        {r.name}
+                    {roles.filter((r) => /^admin$/i.test(String(r.name ?? "").trim())).length > 0 ? (
+                      roles
+                        .filter((r) => /^admin$/i.test(String(r.name ?? "").trim()))
+                        .map((r) => (
+                          <SelectItem key={r.name} value={String(r.name ?? "").trim()}>
+                            {String(r.name ?? "").trim()}
+                          </SelectItem>
+                        ))
+                    ) : (
+                      <SelectItem key="admin" value="Admin">
+                        Admin
                       </SelectItem>
-                    ))}
+                    )}
                   </SelectContent>
                 </Select>
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium">Assigned clinic</label>
-                <Select name="clinic" defaultValue={clinics[0]?.name}>
+                <Select
+                  name="clinic"
+                  value={newAdminClinic}
+                  onValueChange={setNewAdminClinic}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

@@ -261,6 +261,8 @@ export const api = {
     login: (data) => apiRequest("/api/auth/login", { ...json("POST", data), auth: false }),
     forgotPassword: (data) =>
       apiRequest("/api/auth/forgot-password", { ...json("POST", data), auth: false }),
+    verifyOtp: (data) =>
+      apiRequest("/api/auth/verify-otp", { ...json("POST", data), auth: false }),
     resetPassword: (data) =>
       apiRequest("/api/auth/reset-password", { ...json("POST", data), auth: false }),
   },
