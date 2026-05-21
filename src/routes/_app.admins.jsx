@@ -6,7 +6,6 @@ import {
   Filter,
   MoreVertical,
   Edit2,
-  Trash2,
   Eye,
   Mail,
   User2,
@@ -38,9 +37,9 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { api, toArray } from "@/lib/api";
+import { api, getPayload, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { normalizeAdmin, normalizeClinic, normalizeRole } from "@/lib/api-normalizers";
+import { normalizeAdmin, normalizeClinic } from "@/lib/api-normalizers";
 import {
   cleanEmail,
   EMAIL_INPUT_PATTERN,
@@ -54,61 +53,65 @@ export const Route = createFileRoute("/_app/admins")({
   component: AdminsPage,
   head: () => ({ meta: [{ title: "Admins — Medisuite" }] }),
 });
+const adminStatusPayload = (active) => ({
+  isActive: active,
+  status: active ? "active" : "inactive",
+});
+
+const adminAccessPayload = ({ clinic }) => ({
+  role: "Admin",
+  roleName: "Admin",
+  clinic,
+  clinicName: clinic,
+});
+
 function AdminsPage() {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [q, setQ] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [roleFilter, setRoleFilter] = useState("all");
   const [clinicFilter, setClinicFilter] = useState("all");
-  const [newAdminRole, setNewAdminRole] = useState("");
   const [newAdminClinic, setNewAdminClinic] = useState("");
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
+  const [editAdminActive, setEditAdminActive] = useState(false);
+  const [editAdminClinic, setEditAdminClinic] = useState("");
 
-  const { data, loading, error, reload } = useApiResource(
+  const { data, setData, loading, error, reload } = useApiResource(
     async () => {
-      const [adminsResponse, clinicsResponse, rolesResponse] = await Promise.all([
+      const [adminsResponse, clinicsResponse] = await Promise.all([
         api.admins.list(),
         api.clinics.list(),
-        api.roles.list(),
       ]);
       return {
-        admins: toArray(adminsResponse).map(normalizeAdmin),
+        admins: toArray(adminsResponse).map((admin, index) => ({
+          ...normalizeAdmin(admin, index),
+          role: "Admin",
+        })),
         clinics: toArray(clinicsResponse).map(normalizeClinic),
-        roles: toArray(rolesResponse).map(normalizeRole),
       };
     },
-    { admins: [], clinics: [], roles: [] },
+    { admins: [], clinics: [] },
     [],
   );
-  const { admins, clinics, roles } = data;
+  const { admins, clinics } = data;
 
   useEffect(() => {
     if (!open) return;
-    const adminRoleName =
-      roles
-        .map((r) => String(r.name ?? "").trim())
-        .find((name) => /^admin$/i.test(name));
-    setNewAdminRole(adminRoleName || "Admin");
     setNewAdminClinic(clinics[0]?.name || "");
-  }, [open, roles, clinics]);
+    setSendWelcomeEmail(true);
+  }, [open, clinics]);
 
-  const availableRoleNames = Array.from(
-    new Set([
-      ...roles.map((r) => String(r.name ?? "").trim()).filter(Boolean),
-      "Admin",
-      "Super Admin",
-      "Receptionist",
-      "Doctor",
-      "Patient",
-    ]),
-  );
+  useEffect(() => {
+    if (!editing) return;
+    setEditAdminActive(editing.status === "active");
+    setEditAdminClinic(editing.clinic || clinics[0]?.name || "");
+  }, [editing, clinics]);
 
   const filtered = admins.filter(
     (a) =>
       (a.name.toLowerCase().includes(q.toLowerCase()) ||
         a.email.toLowerCase().includes(q.toLowerCase())) &&
-      (roleFilter === "all" || a.role.toLowerCase() === roleFilter) &&
       (clinicFilter === "all" || a.clinic.toLowerCase().includes(clinicFilter))
   );
   const createAdmin = async (e) => {
@@ -118,9 +121,12 @@ function AdminsPage() {
       name: String(form.get("name") ?? "").trim(),
       email: cleanEmail(form.get("email")),
       password: String(form.get("password") ?? ""),
-      role: form.get("role"),
-      clinic: form.get("clinic"),
-      sendWelcomeEmail: Boolean(form.get("sendWelcomeEmail")),
+      ...adminAccessPayload({ clinic: newAdminClinic }),
+      sendWelcomeEmail,
+      welcomeEmail: sendWelcomeEmail,
+      sendEmail: sendWelcomeEmail,
+      status: "active",
+      isActive: true,
     };
     const validationError = firstError([
       validateName(admin.name, "Full name"),
@@ -149,9 +155,8 @@ function AdminsPage() {
     const admin = {
       name: String(form.get("name") ?? "").trim(),
       email: cleanEmail(form.get("email")),
-      role: form.get("role"),
-      clinic: form.get("clinic"),
-      isActive: Boolean(form.get("isActive")),
+      ...adminAccessPayload({ clinic: editAdminClinic }),
+      ...adminStatusPayload(editAdminActive),
     };
     const validationError = firstError([
       validateName(admin.name, "Full name"),
@@ -164,22 +169,27 @@ function AdminsPage() {
       return;
     }
     try {
-      await api.admins.update(editing.id, admin);
+      const response = await api.admins.update(editing.id, admin);
+      const updated = normalizeAdmin({
+        ...editing,
+        ...admin,
+        ...getPayload(response),
+        role: admin.role,
+        roleName: admin.role,
+        clinic: admin.clinic,
+        clinicName: admin.clinic,
+        status: admin.status,
+      });
+      setData((current) => ({
+        ...current,
+        admins: current.admins.map((item) => (item.id === editing.id ? updated : item)),
+      }));
+      setViewing((current) => (current?.id === editing.id ? updated : current));
       setEditing(null);
       toast.success("Admin updated");
       reload();
     } catch (err) {
       toast.error(err?.message ?? "Unable to update admin");
-    }
-  };
-  const deleteAdmin = async (id) => {
-    if (!window.confirm("Remove this admin? This action cannot be undone.")) return;
-    try {
-      await api.admins.remove(id);
-      toast.success("Admin removed");
-      reload();
-    } catch (err) {
-      toast.error(err?.message ?? "Unable to remove admin");
     }
   };
   return (
@@ -229,22 +239,6 @@ function AdminsPage() {
             </SheetHeader>
             <div className="space-y-4 py-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Role</label>
-                <Select value={roleFilter} onValueChange={setRoleFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All roles</SelectItem>
-                    {availableRoleNames.map((name) => (
-                      <SelectItem key={name} value={name.toLowerCase()}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
                 <label className="mb-1.5 block text-sm font-medium">Clinic</label>
                 <input
                   value={clinicFilter === "all" ? "" : clinicFilter}
@@ -257,7 +251,6 @@ function AdminsPage() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setRoleFilter("all");
                     setClinicFilter("all");
                   }}
                 >
@@ -276,7 +269,7 @@ function AdminsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Admin</th>
+                <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Assigned Clinic</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Status</th>
@@ -330,13 +323,6 @@ function AdminsPage() {
                         <DropdownMenuItem onClick={() => setEditing(a)}>
                           <Edit2 className="mr-2 h-4 w-4" />
                           Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => deleteAdmin(a.id)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Remove
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -393,18 +379,11 @@ function AdminsPage() {
               />
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Role</label>
-                <Select name="role" value={newAdminRole} onValueChange={setNewAdminRole}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableRoleNames.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <input
+                  value="Admin"
+                  readOnly
+                  className="h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground"
+                />
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium">Assigned clinic</label>
@@ -431,7 +410,10 @@ function AdminsPage() {
                 <div className="text-sm font-medium">Send welcome email</div>
                 <div className="text-xs text-muted-foreground">With login instructions</div>
               </div>
-              <Switch name="sendWelcomeEmail" defaultChecked />
+              <Switch
+                checked={sendWelcomeEmail}
+                onCheckedChange={setSendWelcomeEmail}
+              />
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setOpen(false)}>
@@ -518,27 +500,19 @@ function AdminsPage() {
                 />
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Role</label>
-                  <Select name="role" defaultValue={editing.role}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableRoleNames.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
-                        </SelectItem>
-                      ))}
-                      {editing.role && !availableRoleNames.includes(editing.role) && (
-                        <SelectItem key={editing.role} value={editing.role}>
-                          {editing.role}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <input
+                    value="Admin"
+                    readOnly
+                    className="h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground"
+                  />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Assigned clinic</label>
-                  <Select name="clinic" defaultValue={editing.clinic}>
+                  <Select
+                    name="clinic"
+                    value={editAdminClinic}
+                    onValueChange={setEditAdminClinic}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -557,7 +531,10 @@ function AdminsPage() {
                   <div className="text-sm font-medium">Admin active</div>
                   <div className="text-xs text-muted-foreground">Allow this admin to log in</div>
                 </div>
-                <Switch name="isActive" defaultChecked={editing.status === "active"} />
+                <Switch
+                  checked={editAdminActive}
+                  onCheckedChange={setEditAdminActive}
+                />
               </div>
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => setEditing(null)}>

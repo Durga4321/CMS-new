@@ -11,6 +11,7 @@ import { Route as AppReportsRouteImport } from "./routes/_app.reports";
 import { Route as AppProfileRouteImport } from "./routes/_app.profile";
 import { Route as AppNotificationsRouteImport } from "./routes/_app.notifications";
 import { Route as AppLogsRouteImport } from "./routes/_app.logs";
+import { Route as AppHelpRouteImport } from "./routes/_app.help";
 import { Route as AppReceptionRouteImport } from "./routes/_app.reception";
 import { Route as AppReceptionPatientsRouteImport } from "./routes/_app.reception.patients";
 import { Route as AppReceptionAppointmentsRouteImport } from "./routes/_app.reception.appointments";
@@ -90,6 +91,12 @@ const AppLogsRoute = AppLogsRouteImport.update({
   getParentRoute: () => AppRoute,
 });
 
+const AppHelpRoute = AppHelpRouteImport.update({
+  id: "/help",
+  path: "/help",
+  getParentRoute: () => AppRoute,
+});
+
 const AppReceptionRoute = AppReceptionRouteImport.update({
   id: "/reception",
   path: "/reception",
@@ -141,6 +148,7 @@ const AppRouteChildren = {
   AppReceptionAppointmentsRoute,
   AppReceptionBillingRoute,
   AppLogsRoute,
+  AppHelpRoute,
   AppNotificationsRoute,
   AppProfileRoute,
   AppReportsRoute,

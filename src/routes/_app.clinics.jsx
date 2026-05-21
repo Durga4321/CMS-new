@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Plus,
   Search,
@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { api, toArray } from "@/lib/api";
+import { api, getPayload, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeClinic } from "@/lib/api-normalizers";
 import {
@@ -51,20 +51,83 @@ export const Route = createFileRoute("/_app/clinics")({
   component: ClinicsPage,
   head: () => ({ meta: [{ title: "Clinics — Medisuite" }] }),
 });
+const clinicStatusPayload = (active) => ({
+  isActive: active,
+  status: active ? "active" : "inactive",
+});
+
+const CLINIC_SERIALS_KEY = "clinic_command_center_clinic_serials";
+
+function clinicSerialKey(clinic) {
+  return String(
+    clinic.id ||
+      clinic.email ||
+      [clinic.name, clinic.contact, clinic.address || clinic.location].filter(Boolean).join("|"),
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function readClinicSerials() {
+  if (typeof window === "undefined") return {};
+  try {
+    const value = JSON.parse(window.localStorage.getItem(CLINIC_SERIALS_KEY) ?? "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClinicSerials(serials) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(CLINIC_SERIALS_KEY, JSON.stringify(serials));
+}
+
+function withStableClinicSerials(clinics) {
+  const serials = readClinicSerials();
+  let nextSerial =
+    Math.max(0, ...Object.values(serials).map((value) => Number(value) || 0)) + 1;
+  let changed = false;
+
+  const numberedClinics = clinics.map((clinic) => {
+    const key = clinicSerialKey(clinic);
+    if (!serials[key]) {
+      serials[key] = nextSerial;
+      nextSerial += 1;
+      changed = true;
+    }
+    return { ...clinic, serial: serials[key] };
+  });
+
+  if (changed) writeClinicSerials(serials);
+  return numberedClinics;
+}
+
 function ClinicsPage() {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [newClinicActive, setNewClinicActive] = useState(true);
+  const [editClinicActive, setEditClinicActive] = useState(false);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  useEffect(() => {
+    if (!editing) return;
+    setEditClinicActive(editing.status === "active");
+  }, [editing]);
   const {
     data: clinics,
     setData: setClinics,
     loading,
     error,
     reload,
-  } = useApiResource(async () => toArray(await api.clinics.list()).map(normalizeClinic), [], []);
+  } = useApiResource(
+    async () => withStableClinicSerials(toArray(await api.clinics.list()).map(normalizeClinic)),
+    [],
+    [],
+  );
   const filtered = clinics.filter((c) => {
     const query = q.trim().toLowerCase();
     const haystack = [c.id, c.name, c.location, c.address, c.email, c.contact, String(c.admins)]
@@ -82,7 +145,7 @@ function ClinicsPage() {
       email: cleanEmail(form.get("email")),
       address: String(form.get("address") ?? "").trim(),
       contact: digitsOnly(form.get("contact")),
-      isActive: Boolean(form.get("isActive")),
+      ...clinicStatusPayload(newClinicActive),
     };
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
@@ -112,7 +175,7 @@ function ClinicsPage() {
       email: cleanEmail(form.get("email")),
       address: String(form.get("address") ?? "").trim(),
       contact: digitsOnly(form.get("contact")),
-      isActive: Boolean(form.get("isActive")),
+      ...clinicStatusPayload(editClinicActive),
     };
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
@@ -125,7 +188,17 @@ function ClinicsPage() {
       return;
     }
     try {
-      await api.clinics.update(editing.id, clinic);
+      const response = await api.clinics.update(editing.id, clinic);
+      const updated = normalizeClinic({
+        ...editing,
+        ...clinic,
+        ...getPayload(response),
+        status: clinic.status,
+      });
+      updated.serial = editing.serial;
+      setClinics((current) =>
+        current.map((item) => (item.id === editing.id ? updated : item)),
+      );
       setEditing(null);
       toast.success("Clinic updated");
       reload();
@@ -143,13 +216,39 @@ function ClinicsPage() {
       toast.error(err?.message ?? "Unable to delete clinic");
     }
   };
+
+  const exportClinics = () => {
+    if (!clinics.length) return;
+    const headers = ["S.No", "Name", "Location", "Status", "Contact", "Email"];
+    const rows = clinics.map((clinic) => [
+      clinic.serial,
+      clinic.name,
+      clinic.location,
+      clinic.status,
+      clinic.contact,
+      clinic.email,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "clinics.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const updateClinicStatus = async (clinic, active) => {
     const nextStatus = active ? "active" : "inactive";
     setClinics((current) =>
       current.map((item) => (item.id === clinic.id ? { ...item, status: nextStatus } : item)),
     );
     try {
-      await api.clinics.update(clinic.id, { isActive: active });
+      await api.clinics.update(clinic.id, clinicStatusPayload(active));
       toast.success(`Clinic marked ${nextStatus}`);
       reload();
     } catch (err) {
@@ -166,11 +265,11 @@ function ClinicsPage() {
         description="Manage all clinics across your healthcare network."
         actions={
           <>
-            <Button variant="outline" className="gap-1.5">
+            <Button onClick={exportClinics} variant="outline" className="gap-1.5">
               <FileDown className="h-4 w-4" />
               Export
             </Button>
-            <Button onClick={() => setOpen(true)} className="gap-1.5">
+            <Button onClick={() => { setOpen(true); setNewClinicActive(true); }} className="gap-1.5">
               <Plus className="h-4 w-4" />
               Add Clinic
             </Button>
@@ -266,7 +365,7 @@ function ClinicsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-3 font-medium">ID</th>
+                <th className="px-5 py-3 font-medium">S.No</th>
                 <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Location</th>
                 <th className="px-5 py-3 font-medium">Status</th>
@@ -281,7 +380,7 @@ function ClinicsPage() {
                   key={c.id}
                   className="border-b border-border last:border-0 transition-colors hover:bg-secondary/40"
                 >
-                  <td className="px-5 py-3.5 text-muted-foreground">{c.id}</td>
+                  <td className="px-5 py-3.5 text-muted-foreground whitespace-nowrap">{c.serial}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary-soft text-primary">
@@ -289,7 +388,6 @@ function ClinicsPage() {
                       </div>
                       <div>
                         <div className="font-medium">{c.name}</div>
-                        <div className="text-xs text-muted-foreground">{c.address}</div>
                       </div>
                     </div>
                   </td>
@@ -329,7 +427,7 @@ function ClinicsPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
                     {loading ? "Loading clinics..." : "No clinics match your filters."}
                   </td>
                 </tr>
@@ -533,7 +631,7 @@ function ClinicsPage() {
                     Allow staff to log in immediately
                   </div>
                 </div>
-                <Switch name="isActive" defaultChecked={editing.status === "active"} />
+                <Switch checked={editClinicActive} onCheckedChange={setEditClinicActive} />
               </div>
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => setEditing(null)}>

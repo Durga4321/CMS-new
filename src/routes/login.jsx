@@ -29,6 +29,7 @@ import {
   readRole,
   readToken,
   readUser,
+  markUserActive,
   setAuthToken,
   setAuthUser,
   hasAuthSession,
@@ -146,8 +147,8 @@ function LoginPage() {
       const localUser = isSuperAdminLogin ? null : getRegisteredUser(normalizedEmail);
       if (localUser) {
         if (localUser.password && localUser.password !== password) {
-          setErrors({ form: "Invalid email or password" });
-          toast.error("Invalid email or password");
+          setErrors({ password: "Incorrect password. Please try again." });
+          toast.error("Incorrect password. Please try again.");
           return;
         }
         if (!localUser.password) {
@@ -166,6 +167,7 @@ function LoginPage() {
         }
         setAuthToken(`static-${Date.now()}`, rememberMe);
         setAuthUser(authUser, rememberMe);
+        markUserActive(authUser);
         toast.success("Welcome back!");
         nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
         return;
@@ -230,6 +232,7 @@ function LoginPage() {
       }
       setAuthToken(token, rememberMe);
       setAuthUser(authUser, rememberMe);
+      markUserActive(authUser);
       toast.success("Welcome back!");
       nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
     } catch (err) {

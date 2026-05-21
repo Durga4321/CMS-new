@@ -2,6 +2,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 const TOKEN_KEY = "clinic_command_center_token";
 const USER_KEY = "clinic_command_center_user";
+const USER_ACTIVITY_KEY = "clinic_command_center_user_activity";
 
 export function getAuthToken() {
   if (typeof window === "undefined") return "";
@@ -37,6 +38,31 @@ export function setAuthUser(user, remember = true) {
   const otherStorage = remember ? window.sessionStorage : window.localStorage;
   storage.setItem(USER_KEY, JSON.stringify(user));
   otherStorage.removeItem(USER_KEY);
+}
+
+export function markUserActive(user, timestamp = new Date()) {
+  if (typeof window === "undefined") return;
+  const email = readField(user, ["email", "Email", "username", "Username"]).toLowerCase();
+  if (!email) return;
+  try {
+    const activity = JSON.parse(window.localStorage.getItem(USER_ACTIVITY_KEY) ?? "{}");
+    activity[email] = timestamp.toISOString();
+    window.localStorage.setItem(USER_ACTIVITY_KEY, JSON.stringify(activity));
+  } catch {
+    window.localStorage.setItem(USER_ACTIVITY_KEY, JSON.stringify({ [email]: timestamp.toISOString() }));
+  }
+}
+
+export function getStoredUserActivity(email) {
+  if (typeof window === "undefined") return "";
+  const key = String(email ?? "").trim().toLowerCase();
+  if (!key) return "";
+  try {
+    const activity = JSON.parse(window.localStorage.getItem(USER_ACTIVITY_KEY) ?? "{}");
+    return activity[key] ? formatActivityTime(activity[key]) : "";
+  } catch {
+    return "";
+  }
 }
 
 export function clearAuthToken() {
@@ -231,6 +257,18 @@ function parseResponse(text) {
   } catch {
     return { message: text };
   }
+}
+
+function formatActivityTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 const byId = (path, id) => `${path}/${encodeURIComponent(id)}`;

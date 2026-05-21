@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { getAuthUser, readField, setAuthUser } from "@/lib/api";
 import {
+  cleanEmail,
   digitsOnly,
+  lettersOnly,
+  validateEmail,
   validateName,
   validatePhone,
 } from "@/lib/form-validation";
@@ -61,24 +64,30 @@ function ProfilePage() {
   const saveProfile = (event) => {
     event.preventDefault();
     const normalizedName = String(form.name ?? "").trim();
+    const normalizedEmail = cleanEmail(form.email);
     const normalizedPhone = digitsOnly(form.phone);
 
     const nameError = validateName(normalizedName, "Full name");
+    const emailError = validateEmail(normalizedEmail);
     const phoneError = validatePhone(normalizedPhone);
 
-    if (nameError || phoneError) {
-      toast.error(nameError || phoneError);
+    if (nameError || emailError || phoneError) {
+      toast.error(nameError || emailError || phoneError);
       return;
     }
 
     const nextForm = {
       ...form,
       name: normalizedName,
+      email: normalizedEmail,
       phone: normalizedPhone,
     };
 
     setForm(nextForm);
-    setAuthUser({ ...authUser, ...nextForm });
+    const remember =
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("clinic_command_center_user") !== null;
+    setAuthUser({ ...authUser, ...nextForm, fullName: normalizedName }, remember);
     toast.success("Profile details saved");
   };
 
@@ -122,7 +131,7 @@ function ProfilePage() {
                   className={inputCls}
                   type="email"
                   value={form.email}
-                  readOnly
+                  onChange={updateField("email")}
                 />
               </FormField>
               <FormField label="Phone number">

@@ -2,7 +2,13 @@ const NAME_PATTERN = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const EMAIL_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9_%+-]|(?:\.(?=[A-Za-z0-9_%+-])))*@[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{1,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/;
 const BLOCKED_TLDS = new Set(["cmm", "comm", "con", "coom", "cm", "om"]);
-const BLOCKED_EMAIL_DOMAINS = new Set(["hmail.com"]);
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  "hmail.com",
+  "ghail.com",
+  "gmhil.com",
+  "gmal.com",
+  "gamil.com",
+]);
 export const EMAIL_INPUT_PATTERN =
   "[A-Za-z0-9._%+\\x2d]+@[A-Za-z0-9\\x2d]+(?:\\.[A-Za-z0-9\\x2d]+)+";
 const PHONE_LENGTH = 10;
@@ -75,6 +81,7 @@ export function validatePhone(value, label = "Phone number") {
   const phone = digitsOnly(value);
   if (!phone) return `${label} is required`;
   if (phone.length !== PHONE_LENGTH) return `${label} must be exactly ${PHONE_LENGTH} digits`;
+  if (/^0+$/.test(phone)) return `Please enter a valid ${label.toLowerCase()}`;
   return "";
 }
 

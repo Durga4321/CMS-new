@@ -6,7 +6,7 @@ import { PageHeader, StatusBadge } from "@/components/layout/PageHeader";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { api, toArray } from "@/lib/api";
+import { api, getStoredUserActivity, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeUser } from "@/lib/api-normalizers";
 import {
@@ -39,13 +39,19 @@ function UsersPage() {
     error,
     reload,
   } = useApiResource(async () => toArray(await api.users.list()).map(normalizeUser), [], []);
+  const visibleUsers = users.map((user) => {
+    const storedActivity = getStoredUserActivity(user.email);
+    return storedActivity && user.lastActive === "Never"
+      ? { ...user, lastActive: storedActivity }
+      : user;
+  });
   const availableUserRoles = Array.from(
-    new Set(users.map((u) => String(u.role ?? "").trim().toLowerCase()).filter(Boolean)),
+    new Set(visibleUsers.map((u) => String(u.role ?? "").trim().toLowerCase()).filter(Boolean)),
   );
   const availableClinics = Array.from(
-    new Set(users.map((u) => String(u.clinic ?? "").trim()).filter(Boolean)),
+    new Set(visibleUsers.map((u) => String(u.clinic ?? "").trim()).filter(Boolean)),
   );
-  const filtered = users.filter(
+  const filtered = visibleUsers.filter(
     (u) =>
       (tab === "all" || u.status === tab) &&
       (roleFilter === "all" || u.role.toLowerCase() === roleFilter) &&
@@ -54,10 +60,10 @@ function UsersPage() {
         u.email.toLowerCase().includes(q.toLowerCase())),
   );
   const counts = {
-    all: users.length,
-    active: users.filter((u) => u.status === "active").length,
-    inactive: users.filter((u) => u.status === "inactive").length,
-    pending: users.filter((u) => u.status === "pending").length,
+    all: visibleUsers.length,
+    active: visibleUsers.filter((u) => u.status === "active").length,
+    inactive: visibleUsers.filter((u) => u.status === "inactive").length,
+    pending: visibleUsers.filter((u) => u.status === "pending").length,
   };
   const updateStatus = async (user, active) => {
     const nextStatus = active ? "active" : "inactive";
