@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   Plus,
   Search,
+  Filter,
   MoreVertical,
   Edit2,
   Trash2,
@@ -35,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { api, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
@@ -57,6 +59,9 @@ function AdminsPage() {
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [q, setQ] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [clinicFilter, setClinicFilter] = useState("all");
   const [newAdminRole, setNewAdminRole] = useState("");
   const [newAdminClinic, setNewAdminClinic] = useState("");
 
@@ -88,10 +93,23 @@ function AdminsPage() {
     setNewAdminClinic(clinics[0]?.name || "");
   }, [open, roles, clinics]);
 
+  const availableRoleNames = Array.from(
+    new Set([
+      ...roles.map((r) => String(r.name ?? "").trim()).filter(Boolean),
+      "Admin",
+      "Super Admin",
+      "Receptionist",
+      "Doctor",
+      "Patient",
+    ]),
+  );
+
   const filtered = admins.filter(
     (a) =>
-      a.name.toLowerCase().includes(q.toLowerCase()) ||
-      a.email.toLowerCase().includes(q.toLowerCase()),
+      (a.name.toLowerCase().includes(q.toLowerCase()) ||
+        a.email.toLowerCase().includes(q.toLowerCase())) &&
+      (roleFilter === "all" || a.role.toLowerCase() === roleFilter) &&
+      (clinicFilter === "all" || a.clinic.toLowerCase().includes(clinicFilter))
   );
   const createAdmin = async (e) => {
     e.preventDefault();
@@ -188,10 +206,68 @@ function AdminsPage() {
               className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
           </div>
-          <div className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{filtered.length}</span> admins
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setFiltersOpen(true)}
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+            </Button>
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{filtered.length}</span> admins
+            </div>
           </div>
         </div>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent className="w-full sm:max-w-sm">
+            <SheetHeader>
+              <SheetTitle>Admin filters</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Role</label>
+                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All roles</SelectItem>
+                    {availableRoleNames.map((name) => (
+                      <SelectItem key={name} value={name.toLowerCase()}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Clinic</label>
+                <input
+                  value={clinicFilter === "all" ? "" : clinicFilter}
+                  onChange={(e) => setClinicFilter(e.target.value.trim().toLowerCase() || "all")}
+                  placeholder="Filter by clinic"
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRoleFilter("all");
+                    setClinicFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+                <Button onClick={() => setFiltersOpen(false)}>Apply</Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <div className="overflow-x-auto">
           {error && (
@@ -322,19 +398,11 @@ function AdminsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.filter((r) => /^admin$/i.test(String(r.name ?? "").trim())).length > 0 ? (
-                      roles
-                        .filter((r) => /^admin$/i.test(String(r.name ?? "").trim()))
-                        .map((r) => (
-                          <SelectItem key={r.name} value={String(r.name ?? "").trim()}>
-                            {String(r.name ?? "").trim()}
-                          </SelectItem>
-                        ))
-                    ) : (
-                      <SelectItem key="admin" value="Admin">
-                        Admin
+                    {availableRoleNames.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
                       </SelectItem>
-                    )}
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -455,11 +523,16 @@ function AdminsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {roles.map((r) => (
-                        <SelectItem key={r.name} value={r.name}>
-                          {r.name}
+                      {availableRoleNames.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
                         </SelectItem>
                       ))}
+                      {editing.role && !availableRoleNames.includes(editing.role) && (
+                        <SelectItem key={editing.role} value={editing.role}>
+                          {editing.role}
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

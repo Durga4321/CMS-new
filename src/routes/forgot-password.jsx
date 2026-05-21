@@ -44,10 +44,10 @@ function ForgotPasswordPage() {
         response?.data?.reset_token ||
         "";
       toast.success("OTP sent to your email");
-      const query = resetToken
-        ? `?token=${encodeURIComponent(resetToken)}`
-        : `?email=${encodeURIComponent(normalizedEmail)}`;
-      setTimeout(() => nav({ to: `/reset-password${query}` }), 1200);
+      const search = resetToken
+        ? { token: resetToken }
+        : { email: normalizedEmail };
+      nav({ to: "/reset-password", search });
     } catch (err) {
       console.error("Forgot password error:", err);
       const errorMsg = err?.data?.message || err?.message || "Unable to send OTP";

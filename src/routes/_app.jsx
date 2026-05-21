@@ -26,6 +26,10 @@ export const Route = createFileRoute("/_app")({
     const role = normalizeRole(user?.role);
     const path = String(location.pathname ?? "");
 
+    if (role !== "admin" && role !== "receptionist") {
+      throw redirect({ to: "/login" });
+    }
+
     if (role === "receptionist" && !path.startsWith("/reception") && !path.startsWith("/profile") && !path.startsWith("/notifications")) {
       throw redirect({ to: "/reception" });
     }

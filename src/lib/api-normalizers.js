@@ -40,11 +40,22 @@ export function normalizeClinic(item, index = 0) {
   return {
     id: text(item.id ?? item._id ?? item.clinicId ?? item.code, `CL-${index + 1}`),
     name: text(item.name ?? item.clinicName ?? item.title, "Unnamed clinic"),
-    email: text(item.email ?? item.contactEmail, ""),
+    email: text(item.email ?? item.contactEmail ?? item.emailAddress ?? item.email_address, ""),
     address: text(item.address ?? item.location, location),
     location,
-    contact: text(item.contact ?? item.phone ?? item.mobile ?? item.email),
-    admins: item.adminsCount ?? item.adminCount ?? item.totalAdmins ?? item.admins?.length ?? 0,
+    contact: text(
+      item.contact ??
+        item.contactNumber ??
+        item.contact_number ??
+        item.phone ??
+        item.phoneNumber ??
+        item.phone_number ??
+        item.mobile ??
+        item.mobileNumber ??
+        item.mobile_number,
+      "",
+    ),
+    admins: item.adminsCount ?? item.adminCount ?? item.totalAdmins ?? item.admins?.length ?? item.usersCount ?? item.userCount ?? 0,
     status: normalizeStatus(item.status ?? item.isActive),
   };
 }

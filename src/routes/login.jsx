@@ -50,7 +50,19 @@ export const Route = createFileRoute("/login")({
   beforeLoad: ({ search }) => {
     if (typeof window === "undefined") return;
     if (hasAuthSession() && !search?.redirect) {
-      throw redirectToStoredHome();
+      const rawUser =
+        window.localStorage.getItem("clinic_command_center_user") ??
+        window.sessionStorage.getItem("clinic_command_center_user");
+      let role = "";
+      try {
+        role = JSON.parse(rawUser)?.role ?? "";
+      } catch {
+        role = "";
+      }
+      const homePath = getRoleHomePath(role);
+      if (homePath) {
+        throw redirect({ to: homePath });
+      }
     }
   },
   component: LoginPage,
@@ -66,6 +78,14 @@ const roles = [
 
 const SUPER_ADMIN_EMAIL = "superadmin@gmail.com";
 const SUPER_ADMIN_FALLBACK_NAME = "DP";
+
+function getRoleHomePath(role) {
+  const normalizedRole = normalizeRole(role);
+  if (normalizedRole === "receptionist") return "/reception";
+  if (normalizedRole === "admin") return "/dashboard";
+  if (normalizedRole === "superadmin") return "/dashboard";
+  return "";
+}
 
 function LoginPage() {
   const nav = useNavigate();
@@ -138,6 +158,12 @@ function LoginPage() {
           role: normalizeRole(localUser.role) || "admin",
           name: localUser.name || localUser.username || normalizedEmail.split("@")[0],
         };
+        const homePath = getRoleHomePath(authUser.role);
+        if (!homePath) {
+          setErrors({ form: "No dashboard available for this role." });
+          toast.error("No dashboard available for this role.");
+          return;
+        }
         setAuthToken(`static-${Date.now()}`, rememberMe);
         setAuthUser(authUser, rememberMe);
         toast.success("Welcome back!");
@@ -163,7 +189,6 @@ function LoginPage() {
       if (!token) {
         throw new Error("Invalid email or password");
       }
-      setAuthToken(token, rememberMe);
       const safeSavedUser = savedUser && typeof savedUser === "object" ? { ...savedUser } : {};
       delete safeSavedUser.password;
       delete safeSavedUser.Password;
@@ -197,6 +222,13 @@ function LoginPage() {
           backendName ||
           (isSuperAdminLogin ? SUPER_ADMIN_FALLBACK_NAME : normalizedEmail.split("@")[0]),
       };
+      const homePath = getRoleHomePath(authUser.role);
+      if (!homePath) {
+        setErrors({ form: "No dashboard available for this role." });
+        toast.error("No dashboard available for this role.");
+        return;
+      }
+      setAuthToken(token, rememberMe);
       setAuthUser(authUser, rememberMe);
       toast.success("Welcome back!");
       nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
@@ -620,6 +652,7 @@ function clearFieldError(setErrors, field) {
 
 function resolvePostLoginPath(redirect, role) {
   let path = String(redirect ?? "").trim();
+  const homePath = getRoleHomePath(role);
 
   if (path.startsWith("http://") || path.startsWith("https://")) {
     try {
@@ -629,9 +662,20 @@ function resolvePostLoginPath(redirect, role) {
     }
   }
 
-  if (path.startsWith("/") && !path.startsWith("/login")) return path;
-  const normalizedRole = normalizeRole(role);
-  return normalizedRole === "receptionist" ? "/reception" : "/dashboard";
+  if (path.startsWith("/") && !path.startsWith("/login")) {
+    if (path.startsWith("/profile") || path.startsWith("/notifications")) {
+      return path;
+    }
+    if (homePath === "/reception" && path.startsWith("/reception")) {
+      return path;
+    }
+    if (homePath === "/dashboard" && !path.startsWith("/reception")) {
+      return path;
+    }
+    return homePath;
+  }
+
+  return homePath || "/login";
 }
 
 function redirectToStoredHome() {
@@ -644,9 +688,8 @@ function redirectToStoredHome() {
   } catch {
     role = "";
   }
-  return redirect({
-    to: normalizeRole(role) === "receptionist" ? "/reception" : "/dashboard",
-  });
+  const homePath = getRoleHomePath(role);
+  return redirect({ to: homePath || "/login" });
 }
 
 function TextField({

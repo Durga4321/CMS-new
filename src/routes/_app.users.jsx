@@ -27,6 +27,9 @@ export const Route = createFileRoute("/_app/users")({
 function UsersPage() {
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [clinicFilter, setClinicFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(false);
   const {
@@ -36,9 +39,17 @@ function UsersPage() {
     error,
     reload,
   } = useApiResource(async () => toArray(await api.users.list()).map(normalizeUser), [], []);
+  const availableUserRoles = Array.from(
+    new Set(users.map((u) => String(u.role ?? "").trim().toLowerCase()).filter(Boolean)),
+  );
+  const availableClinics = Array.from(
+    new Set(users.map((u) => String(u.clinic ?? "").trim()).filter(Boolean)),
+  );
   const filtered = users.filter(
     (u) =>
       (tab === "all" || u.status === tab) &&
+      (roleFilter === "all" || u.role.toLowerCase() === roleFilter) &&
+      (clinicFilter === "all" || u.clinic.toLowerCase().includes(clinicFilter)) &&
       (u.name.toLowerCase().includes(q.toLowerCase()) ||
         u.email.toLowerCase().includes(q.toLowerCase())),
   );
@@ -146,11 +157,69 @@ function UsersPage() {
               className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setFiltersOpen(true)}
+          >
             <Filter className="h-4 w-4" />
             Advanced filters
           </Button>
         </div>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent className="w-full sm:max-w-sm">
+            <SheetHeader>
+              <SheetTitle>User filters</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Role</label>
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                >
+                  <option value="all">All roles</option>
+                  {availableUserRoles.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Clinic</label>
+                <select
+                  value={clinicFilter}
+                  onChange={(e) => setClinicFilter(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                >
+                  <option value="all">All clinics</option>
+                  {availableClinics.map((clinic) => (
+                    <option key={clinic} value={clinic.toLowerCase()}>
+                      {clinic}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRoleFilter("all");
+                    setClinicFilter("all");
+                    setQ("");
+                  }}
+                >
+                  Clear filters
+                </Button>
+                <Button onClick={() => setFiltersOpen(false)}>Apply</Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <div className="overflow-x-auto">
           {error && (
@@ -262,6 +331,7 @@ function UsersPage() {
                       label="Email"
                       type="email"
                       defaultValue={selected.email}
+                      dataKind="email"
                     />
                     <EditField
                       name="phone"
@@ -346,6 +416,7 @@ function EditField({ label, dataKind, onInput, ...props }) {
   const handleInput = (event) => {
     if (dataKind === "letters") event.currentTarget.value = lettersOnly(event.currentTarget.value);
     if (dataKind === "numbers") event.currentTarget.value = digitsOnly(event.currentTarget.value);
+    if (dataKind === "email") event.currentTarget.value = cleanEmail(event.currentTarget.value);
     if (dataKind === "alphanumeric") {
       event.currentTarget.value = alphaNumericOnly(event.currentTarget.value);
     }

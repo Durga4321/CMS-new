@@ -15,8 +15,21 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { cleanEmail } from "@/lib/form-validation";
+import { cleanEmail, validatePassword } from "@/lib/form-validation";
 import { toast } from "sonner";
+
+function updateRegisteredUserPassword(email, password) {
+  if (typeof window === "undefined" || !email) return;
+  try {
+    const users = JSON.parse(window.localStorage.getItem("clinic_registered_users") ?? "{}");
+    const key = email.toLowerCase();
+    if (!users[key]) return;
+    users[key] = { ...users[key], password };
+    window.localStorage.setItem("clinic_registered_users", JSON.stringify(users));
+  } catch {
+    return;
+  }
+}
 
 export const Route = createFileRoute("/reset-password")({
   component: ResetPasswordPage,
@@ -32,7 +45,8 @@ function ResetPasswordPage() {
   const [showPwd, setShowPwd] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [success, setSuccess] = useState("");
 
   const score = [
     pwd.length >= 8,
@@ -41,58 +55,49 @@ function ResetPasswordPage() {
     /[^A-Za-z0-9]/.test(pwd),
   ].filter(Boolean).length;
 
-  const verifyOtp = async (e) => {
-    e.preventDefault();
-    if (!otp.trim()) return toast.error("Please enter the OTP");
-    setLoading(true);
-    try {
-      const payload = {
-        otp: otp.trim(),
-        token: search.token ?? search.resetToken ?? "",
-        email: search.email ? cleanEmail(String(search.email)) : undefined,
-      };
-      console.log("Verifying OTP with payload:", {
-        otp: payload.otp,
-        token: payload.token ? "***" : "missing",
-        email: payload.email ? payload.email : "missing",
-      });
-      await api.auth.verifyOtp(payload);
-      setOtpVerified(true);
-      toast.success("OTP verified successfully");
-    } catch (err) {
-      console.error("OTP verification error:", err);
-      const errorMsg = err?.data?.message || err?.message || "Invalid or expired OTP";
-      toast.error(errorMsg);
-    } finally {
-      setLoading(false);
+  const emailValue = search.email ? cleanEmail(String(search.email)) : "";
+
+  const validateForm = () => {
+    const errors = {};
+    if (!otp.trim()) errors.otp = "OTP is required";
+    if (!pwd.trim()) errors.newPassword = "New password is required";
+    if (!confirm.trim()) errors.confirmPassword = "Confirm password is required";
+    if (pwd.trim() && pwd.trim().length < 6) errors.newPassword = "Password must be at least 6 characters";
+    if (pwd.trim() && confirm.trim() && pwd.trim() !== confirm.trim()) {
+      errors.confirmPassword = "Passwords do not match";
     }
+    if (!emailValue) errors.email = "Email is required";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!otpVerified) return toast.error("Please verify OTP first");
-    if (pwd.length < 8) return toast.error("Password must be at least 8 characters");
-    if (pwd !== confirm) return toast.error("Passwords don't match");
+    if (!validateForm()) {
+      toast.error("Please fix the highlighted errors");
+      return;
+    }
+    if (!emailValue) {
+      toast.error("Missing email for password reset.");
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
+        email: emailValue,
         otp: otp.trim(),
-        token: search.token ?? search.resetToken ?? "",
-        email: search.email ? cleanEmail(String(search.email)) : undefined,
-        password: pwd,
-        password_confirmation: confirm,
+        newPassword: pwd.trim(),
+        confirmPassword: confirm.trim(),
       };
-      console.log("Resetting password with payload:", {
-        otp: payload.otp,
-        token: payload.token ? "***" : "missing",
-        email: payload.email ? payload.email : "missing",
-      });
-      await api.auth.resetPassword(payload);
-      toast.success("Password updated successfully");
-      setTimeout(() => nav({ to: "/login" }), 800);
+      console.log("Resetting password with payload:", payload);
+      const response = await api.auth.resetPassword(payload);
+      updateRegisteredUserPassword(emailValue, payload.newPassword);
+      setSuccess(response?.message || "Password reset successful! Redirecting...");
+      toast.success(response?.message || "Password reset successful!");
+      setTimeout(() => nav({ to: "/login" }), 2000);
     } catch (err) {
       console.error("Password reset error:", err);
-      const errorMsg = err?.data?.message || err?.message || "Unable to reset password";
+      const errorMsg = err?.data?.message || err?.message || "Reset failed. Try again.";
       toast.error(errorMsg);
     } finally {
       setLoading(false);
@@ -107,122 +112,133 @@ function ResetPasswordPage() {
         <div className="w-full max-w-md animate-slide-up">
           <MobileBrand />
 
-          <h1 className="text-2xl font-semibold tracking-tight">Set a new password</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Reset Password</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Enter the OTP sent to your email, then create a strong password.
+            Enter the OTP sent to your email and set your new password.
           </p>
+          {search.email && (
+            <div className="mt-3 rounded-xl border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
+              OTP is sent to <strong>{cleanEmail(String(search.email))}</strong>
+            </div>
+          )}
 
-          <form onSubmit={otpVerified ? submit : verifyOtp} className="mt-8 space-y-5">
-            {!otpVerified ? (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Enter OTP</label>
-                <div className="relative">
-                  <Shield className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="text"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    placeholder="000000"
-                    maxLength="6"
-                    className="h-11 w-full rounded-lg border border-input bg-card pl-10 pr-3 text-sm tracking-widest focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-                  />
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Check your registered email for the 6-digit code
-                </p>
+          <form onSubmit={submit} className="mt-8 space-y-5">
+            {success && (
+              <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+                {success}
               </div>
-            ) : (
-              <>
-                <div className="rounded-lg bg-success/10 p-3">
-                  <p className="text-sm font-medium text-success">✓ OTP verified successfully</p>
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">New password</label>
-                  <PasswordField
-                    value={pwd}
-                    onChange={setPwd}
-                    showPassword={showPwd}
-                    onToggle={() => setShowPwd((s) => !s)}
-                    placeholder="Create password"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium">Confirm password</label>
-                  <PasswordField
-                    value={confirm}
-                    onChange={setConfirm}
-                    showPassword={showConfirm}
-                    onToggle={() => setShowConfirm((s) => !s)}
-                    placeholder="Confirm password"
-                  />
-                </div>
-
-                <div>
-                  <div className="mb-2 flex gap-1">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        className={`h-1.5 flex-1 rounded-full ${
-                          i < score
-                            ? score < 2
-                              ? "bg-destructive"
-                              : score < 3
-                                ? "bg-warning"
-                                : "bg-success"
-                            : "bg-border"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <ul className="space-y-1 text-xs text-muted-foreground">
-                    {[
-                      ["At least 8 characters", pwd.length >= 8],
-                      ["One uppercase letter", /[A-Z]/.test(pwd)],
-                      ["One number", /[0-9]/.test(pwd)],
-                      ["One symbol", /[^A-Za-z0-9]/.test(pwd)],
-                    ].map(([text, ok]) => (
-                      <li key={String(text)} className="flex items-center gap-1.5">
-                        <Check
-                          className={`h-3 w-3 ${ok ? "text-success" : "text-muted-foreground/50"}`}
-                        />
-                        {text}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </>
             )}
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">OTP</label>
+              <div className="relative">
+                <Shield className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => {
+                    setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+                    setFieldErrors((prev) => ({ ...prev, otp: "" }));
+                  }}
+                  placeholder="Enter OTP"
+                  maxLength="6"
+                  className={`h-11 w-full rounded-lg border ${fieldErrors.otp ? "border-destructive" : "border-input"} bg-card pl-10 pr-3 text-sm tracking-widest focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20`}
+                />
+              </div>
+              {fieldErrors.otp && <p className="mt-1.5 text-xs text-destructive">{fieldErrors.otp}</p>}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">New password</label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type={showPwd ? "text" : "password"}
+                  value={pwd}
+                  onChange={(e) => {
+                    setPwd(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, newPassword: "" }));
+                  }}
+                  placeholder="Enter new password"
+                  className={`h-11 w-full rounded-lg border ${fieldErrors.newPassword ? "border-destructive" : "border-input"} bg-card pl-10 pr-10 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {fieldErrors.newPassword && <p className="mt-1.5 text-xs text-destructive">{fieldErrors.newPassword}</p>}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Confirm password</label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type={showConfirm ? "text" : "password"}
+                  value={confirm}
+                  onChange={(e) => {
+                    setConfirm(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, confirmPassword: "" }));
+                  }}
+                  placeholder="Confirm new password"
+                  className={`h-11 w-full rounded-lg border ${fieldErrors.confirmPassword ? "border-destructive" : "border-input"} bg-card pl-10 pr-10 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((s) => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {fieldErrors.confirmPassword && <p className="mt-1.5 text-xs text-destructive">{fieldErrors.confirmPassword}</p>}
+            </div>
+
+            <div>
+              <div className="mb-2 flex gap-1">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 flex-1 rounded-full ${
+                      i < score
+                        ? score < 2
+                          ? "bg-destructive"
+                          : score < 3
+                            ? "bg-warning"
+                            : "bg-success"
+                        : "bg-border"
+                    }`}
+                  />
+                ))}
+              </div>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {[
+                  ["At least 8 characters", pwd.length >= 8],
+                  ["One uppercase letter", /[A-Z]/.test(pwd)],
+                  ["One number", /[0-9]/.test(pwd)],
+                  ["One symbol", /[^A-Za-z0-9]/.test(pwd)],
+                ].map(([text, ok]) => (
+                  <li key={String(text)} className="flex items-center gap-1.5">
+                    <Check
+                      className={`h-3 w-3 ${ok ? "text-success" : "text-muted-foreground/50"}`}
+                    />
+                    {text}
+                  </li>
+                ))}
+              </ul>
+            </div>
 
             <Button
               type="submit"
               disabled={loading}
               className="h-11 w-full bg-gradient-primary text-primary-foreground shadow-elev hover:opacity-95"
             >
-              {loading ? (
-                otpVerified ? "Updating..." : "Verifying..."
-              ) : (
-                <>
-                  {otpVerified ? "Update password" : "Verify OTP"}{" "}
-                  <ArrowRight className="ml-1.5 h-4 w-4" />
-                </>
-              )}
+              {loading ? "Resetting..." : "Reset Password"}
             </Button>
-
-            {otpVerified && (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setOtpVerified(false);
-                  setOtp("");
-                }}
-                className="h-11 w-full"
-              >
-                Use different OTP
-              </Button>
-            )}
           </form>
 
           <Link

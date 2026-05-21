@@ -6,6 +6,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { getAuthUser, readField, setAuthUser } from "@/lib/api";
+import {
+  digitsOnly,
+  validateName,
+  validatePhone,
+} from "@/lib/form-validation";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -43,12 +48,37 @@ function ProfilePage() {
     .toUpperCase();
 
   const updateField = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }));
+    let value = event.target.value;
+    if (field === "name") {
+      value = lettersOnly(value);
+    }
+    if (field === "phone") {
+      value = digitsOnly(value);
+    }
+    setForm((current) => ({ ...current, [field]: value }));
   };
 
   const saveProfile = (event) => {
     event.preventDefault();
-    setAuthUser({ ...authUser, ...form, role: normalizeRole(form.role, form.email) });
+    const normalizedName = String(form.name ?? "").trim();
+    const normalizedPhone = digitsOnly(form.phone);
+
+    const nameError = validateName(normalizedName, "Full name");
+    const phoneError = validatePhone(normalizedPhone);
+
+    if (nameError || phoneError) {
+      toast.error(nameError || phoneError);
+      return;
+    }
+
+    const nextForm = {
+      ...form,
+      name: normalizedName,
+      phone: normalizedPhone,
+    };
+
+    setForm(nextForm);
+    setAuthUser({ ...authUser, ...nextForm });
     toast.success("Profile details saved");
   };
 
@@ -92,14 +122,23 @@ function ProfilePage() {
                   className={inputCls}
                   type="email"
                   value={form.email}
-                  onChange={updateField("email")}
+                  readOnly
                 />
               </FormField>
               <FormField label="Phone number">
-                <input className={inputCls} value={form.phone} onChange={updateField("phone")} />
+                <input
+                  className={inputCls}
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  value={form.phone}
+                  onChange={updateField("phone")}
+                  placeholder="Enter 10-digit mobile number"
+                />
               </FormField>
               <FormField label="Role">
-                <input className={inputCls} value={form.role} onChange={updateField("role")} />
+                <input className={inputCls} value={formatRole(form.role)} readOnly />
               </FormField>
             </div>
 

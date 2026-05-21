@@ -30,6 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { api, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
@@ -56,6 +57,7 @@ function ClinicsPage() {
   const [editing, setEditing] = useState(null);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const {
     data: clinics,
     setData: setClinics,
@@ -65,7 +67,7 @@ function ClinicsPage() {
   } = useApiResource(async () => toArray(await api.clinics.list()).map(normalizeClinic), [], []);
   const filtered = clinics.filter((c) => {
     const query = q.trim().toLowerCase();
-    const haystack = [c.name, c.location, c.address, c.email, c.contact, c.admins]
+    const haystack = [c.id, c.name, c.location, c.address, c.email, c.contact, String(c.admins)]
       .join(" ")
       .toLowerCase();
     return (
@@ -147,7 +149,7 @@ function ClinicsPage() {
       current.map((item) => (item.id === clinic.id ? { ...item, status: nextStatus } : item)),
     );
     try {
-      await api.clinics.update(clinic.id, { ...clinic, isActive: active, status: nextStatus });
+      await api.clinics.update(clinic.id, { isActive: active });
       toast.success(`Clinic marked ${nextStatus}`);
       reload();
     } catch (err) {
@@ -200,11 +202,62 @@ function ClinicsPage() {
               ))}
             </div>
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setFiltersOpen(true)}
+          >
             <Filter className="h-4 w-4" />
             Filters
           </Button>
         </div>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent className="w-full sm:max-w-sm">
+            <SheetHeader>
+              <SheetTitle>Clinic filters</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Search query</label>
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search by name, location, contact"
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Status</label>
+                <div className="flex flex-wrap gap-2">
+                  {['all', 'active', 'pending', 'inactive'].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setStatusFilter(s)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors ${statusFilter === s ? 'bg-primary text-primary-foreground' : 'border border-border bg-card text-muted-foreground hover:bg-accent'}`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setQ("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+                <Button onClick={() => setFiltersOpen(false)}>Apply</Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <div className="overflow-x-auto">
           {error && (
@@ -213,11 +266,12 @@ function ClinicsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Clinic</th>
+                <th className="px-5 py-3 font-medium">ID</th>
+                <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Location</th>
-                <th className="px-5 py-3 font-medium">Contact</th>
-                <th className="px-5 py-3 font-medium">Admins</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Contact</th>
+                <th className="px-5 py-3 font-medium">Email</th>
                 <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -227,6 +281,7 @@ function ClinicsPage() {
                   key={c.id}
                   className="border-b border-border last:border-0 transition-colors hover:bg-secondary/40"
                 >
+                  <td className="px-5 py-3.5 text-muted-foreground">{c.id}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary-soft text-primary">
@@ -234,27 +289,16 @@ function ClinicsPage() {
                       </div>
                       <div>
                         <div className="font-medium">{c.name}</div>
-                        <div className="text-xs text-muted-foreground">{c.id}</div>
+                        <div className="text-xs text-muted-foreground">{c.address}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-muted-foreground">{c.location}</td>
+                  <td className="px-5 py-3.5">
+                    <StatusBadge status={c.status} />
+                  </td>
                   <td className="px-5 py-3.5 text-muted-foreground">{c.contact}</td>
-                  <td className="px-5 py-3.5">
-                    <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium">
-                      {c.admins}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={c.status === "active"}
-                        onCheckedChange={(active) => updateClinicStatus(c, active)}
-                        aria-label={`Set ${c.name} status`}
-                      />
-                      <StatusBadge status={c.status} />
-                    </div>
-                  </td>
+                  <td className="px-5 py-3.5 text-muted-foreground">{c.email}</td>
                   <td className="px-5 py-3.5 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -474,7 +518,7 @@ function ClinicsPage() {
                   name="contact"
                   label="Contact number"
                   icon={Phone}
-                  defaultValue={digitsOnly(editing.contact)}
+                  defaultValue={editing.contact}
                   type="tel"
                   inputMode="numeric"
                   maxLength={10}
@@ -505,10 +549,11 @@ function ClinicsPage() {
   );
 }
 function DetailRow({ label, value }) {
+  const displayValue = value !== null && value !== undefined && String(value).trim() ? value : "-";
   return (
     <div className="flex items-center gap-3 text-sm">
       <div className="text-muted-foreground">{label}</div>
-      <div className="ml-auto text-right font-medium">{value}</div>
+      <div className="ml-auto text-right font-medium">{displayValue}</div>
     </div>
   );
 }
