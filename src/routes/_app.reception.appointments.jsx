@@ -9,7 +9,7 @@ import { api, getPayload, toArray } from "@/lib/api";
 import { normalizeAppointment, normalizePatient } from "@/lib/api-normalizers";
 import { validateTodayOrFutureDate } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { doctors, slots, today } from "@/lib/reception-store";
+import { doctors, nextAppointmentId, slots, today, useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception/appointments")({
   component: AppointmentBookingPage,
@@ -21,13 +21,14 @@ const SLOT_LOCK_DURATION_MS = 5 * 60 * 1000;
 function AppointmentBookingPage() {
   const search = useSearch({ strict: false });
   const navigate = useNavigate();
+  const receptionStore = useReceptionStore();
   const {
-    data: patients,
+    data: apiPatients,
     loading: patientsLoading,
     error: patientsError,
   } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
   const {
-    data: todaysAppointments,
+    data: apiTodaysAppointments,
     loading: appointmentsLoading,
     error: appointmentsError,
     reload: reloadAppointments,
@@ -35,6 +36,9 @@ function AppointmentBookingPage() {
     async () => toArray(await api.appointments.today()).map(normalizeAppointment),
     [],
   );
+  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
+  const todaysAppointments =
+    apiTodaysAppointments.length > 0 ? apiTodaysAppointments : receptionStore.todaysAppointments;
   const [booking, setBooking] = useState({
     patientId: search.patientId || "",
     doctor: doctors[0],
@@ -134,20 +138,26 @@ function AppointmentBookingPage() {
     }
     setBusy(true);
     try {
-      const response = await api.appointments.lockSlot({
-        patientId: booking.patientId,
-        doctor: booking.doctor,
-        date: booking.date,
-        time: slot,
-        slot,
-      });
+      let appointmentId = nextAppointmentId(todaysAppointments.length);
+      try {
+        const response = await api.appointments.lockSlot({
+          patientId: booking.patientId,
+          doctor: booking.doctor,
+          date: booking.date,
+          time: slot,
+          slot,
+        });
+        appointmentId = readEntityId(response);
+        reloadSlots();
+      } catch (err) {
+        if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
+      }
       setLockedSlot(slot);
-      setLockedAppointmentId(readEntityId(response));
+      setLockedAppointmentId(appointmentId);
       setLockedAt(Date.now());
       setLockedBooking({ ...booking });
       setLockRemaining(SLOT_LOCK_DURATION_MS);
       setMessage(`${slot} is locked temporarily. Confirm within 5 minutes.`);
-      reloadSlots();
     } catch (err) {
       setMessage(err?.message ?? "Unable to lock slot");
       toast.error(err?.message ?? "Unable to lock slot");
@@ -184,23 +194,33 @@ function AppointmentBookingPage() {
     };
     setBusy(true);
     try {
-      const response = lockedAppointmentId
-        ? await api.appointments.confirm(lockedAppointmentId, appointmentPayload)
-        : await api.appointments.create(appointmentPayload);
-      const appointment = normalizeAppointment(
-        getPayload(response) ?? {
+      let appointment = normalizeAppointment({
           ...appointmentPayload,
-          id: lockedAppointmentId,
+          id: lockedAppointmentId || nextAppointmentId(todaysAppointments.length),
           patient: patient.name,
-        },
-      );
+      });
+      try {
+        const response = lockedAppointmentId
+          ? await api.appointments.confirm(lockedAppointmentId, appointmentPayload)
+          : await api.appointments.create(appointmentPayload);
+        appointment = normalizeAppointment(getPayload(response) ?? appointment);
+        await reloadAppointments();
+      } catch (err) {
+        if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
+      }
+      receptionStore.setReceptionState((current) => ({
+        ...current,
+        appointments: [
+          ...current.appointments.filter((item) => item.id !== appointment.id),
+          appointment,
+        ],
+      }));
       setLockedSlot("");
       setLockedAppointmentId("");
       setLockedAt(null);
       setLockedBooking(null);
       setLockRemaining(0);
       toast.success("Appointment booked. Patient added to waiting queue.");
-      await reloadAppointments();
       navigate({ to: "/reception/billing", search: { appointmentId: appointment.id } });
     } catch (err) {
       setMessage(err?.message ?? "Unable to confirm appointment");
@@ -213,10 +233,20 @@ function AppointmentBookingPage() {
   const updateStatus = async (id, status) => {
     setBusy(true);
     try {
-      if (status === "Consulted") await api.appointments.complete(id);
-      if (status === "No-show") await api.appointments.noShow(id);
+      try {
+        if (status === "Consulted") await api.appointments.complete(id);
+        if (status === "No-show") await api.appointments.noShow(id);
+        reloadAppointments();
+      } catch (err) {
+        if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
+      }
+      receptionStore.setReceptionState((current) => ({
+        ...current,
+        appointments: current.appointments.map((item) =>
+          item.id === id ? { ...item, status } : item,
+        ),
+      }));
       toast.success("Appointment status updated");
-      reloadAppointments();
     } catch (err) {
       setMessage(err?.message ?? "Unable to update appointment");
       toast.error(err?.message ?? "Unable to update appointment");

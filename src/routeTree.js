@@ -5,9 +5,20 @@ import { Route as ForgotPasswordRouteImport } from "./routes/forgot-password";
 import { Route as AppRouteImport } from "./routes/_app";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as AppUsersRouteImport } from "./routes/_app.users";
+import { Route as AppDoctorRouteImport } from "./routes/_app.doctor";
+import { Route as AppDoctorPatientsRouteImport } from "./routes/_app.doctor.patients";
+import { Route as AppDoctorConsultationsRouteImport } from "./routes/_app.doctor.consultations";
+import { Route as AppDoctorPrescriptionsRouteImport } from "./routes/_app.doctor.prescriptions";
+import { Route as AppDoctorsRouteImport } from "./routes/_app.doctors";
+import { Route as AppStaffRouteImport } from "./routes/_app.staff";
+import { Route as AppPatientsRouteImport } from "./routes/_app.patients";
+import { Route as AppAppointmentsRouteImport } from "./routes/_app.appointments";
+import { Route as AppScheduleRouteImport } from "./routes/_app.schedule";
 import { Route as AppSettingsRouteImport } from "./routes/_app.settings";
 import { Route as AppRolesRouteImport } from "./routes/_app.roles";
 import { Route as AppReportsRouteImport } from "./routes/_app.reports";
+import { Route as AppAdminDashboardRouteImport } from "./routes/_app.admin-dashboard";
+import { Route as AppAdminReportsRouteImport } from "./routes/_app.admin-reports";
 import { Route as AppProfileRouteImport } from "./routes/_app.profile";
 import { Route as AppNotificationsRouteImport } from "./routes/_app.notifications";
 import { Route as AppLogsRouteImport } from "./routes/_app.logs";
@@ -55,6 +66,60 @@ const AppUsersRoute = AppUsersRouteImport.update({
   getParentRoute: () => AppRoute,
 });
 
+const AppDoctorRoute = AppDoctorRouteImport.update({
+  id: "/doctor",
+  path: "/doctor",
+  getParentRoute: () => AppRoute,
+});
+
+const AppDoctorPatientsRoute = AppDoctorPatientsRouteImport.update({
+  id: "/doctor/patients",
+  path: "/doctor/patients",
+  getParentRoute: () => AppRoute,
+});
+
+const AppDoctorConsultationsRoute = AppDoctorConsultationsRouteImport.update({
+  id: "/doctor/consultations",
+  path: "/doctor/consultations",
+  getParentRoute: () => AppRoute,
+});
+
+const AppDoctorPrescriptionsRoute = AppDoctorPrescriptionsRouteImport.update({
+  id: "/doctor/prescriptions",
+  path: "/doctor/prescriptions",
+  getParentRoute: () => AppRoute,
+});
+
+const AppDoctorsRoute = AppDoctorsRouteImport.update({
+  id: "/doctors",
+  path: "/doctors",
+  getParentRoute: () => AppRoute,
+});
+
+const AppStaffRoute = AppStaffRouteImport.update({
+  id: "/staff",
+  path: "/staff",
+  getParentRoute: () => AppRoute,
+});
+
+const AppPatientsRoute = AppPatientsRouteImport.update({
+  id: "/patients",
+  path: "/patients",
+  getParentRoute: () => AppRoute,
+});
+
+const AppAppointmentsRoute = AppAppointmentsRouteImport.update({
+  id: "/appointments",
+  path: "/appointments",
+  getParentRoute: () => AppRoute,
+});
+
+const AppScheduleRoute = AppScheduleRouteImport.update({
+  id: "/schedule",
+  path: "/schedule",
+  getParentRoute: () => AppRoute,
+});
+
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: "/settings",
   path: "/settings",
@@ -70,6 +135,18 @@ const AppRolesRoute = AppRolesRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: "/reports",
   path: "/reports",
+  getParentRoute: () => AppRoute,
+});
+
+const AppAdminDashboardRoute = AppAdminDashboardRouteImport.update({
+  id: "/admin-dashboard",
+  path: "/admin-dashboard",
+  getParentRoute: () => AppRoute,
+});
+
+const AppAdminReportsRoute = AppAdminReportsRouteImport.update({
+  id: "/admin-reports",
+  path: "/admin-reports",
   getParentRoute: () => AppRoute,
 });
 
@@ -140,9 +217,17 @@ const AppAdminsRoute = AppAdminsRouteImport.update({
 });
 
 const AppRouteChildren = {
+  AppAdminDashboardRoute,
+  AppAdminReportsRoute,
   AppAdminsRoute,
+  AppAppointmentsRoute,
   AppClinicsRoute,
   AppDashboardRoute,
+  AppDoctorConsultationsRoute,
+  AppDoctorPatientsRoute,
+  AppDoctorPrescriptionsRoute,
+  AppDoctorRoute,
+  AppDoctorsRoute,
   AppReceptionRoute,
   AppReceptionPatientsRoute,
   AppReceptionAppointmentsRoute,
@@ -150,10 +235,13 @@ const AppRouteChildren = {
   AppLogsRoute,
   AppHelpRoute,
   AppNotificationsRoute,
+  AppPatientsRoute,
   AppProfileRoute,
   AppReportsRoute,
   AppRolesRoute,
+  AppScheduleRoute,
   AppSettingsRoute,
+  AppStaffRoute,
   AppUsersRoute,
 };
 

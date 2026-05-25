@@ -21,7 +21,7 @@ import {
   validatePastOrTodayDate,
   validatePhone,
 } from "@/lib/form-validation";
-import { chronicOptions, emptyPatient, nextPatientId } from "@/lib/reception-store";
+import { chronicOptions, emptyPatient, nextPatientId, useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception/patients")({
   component: ReceptionPatientsPage,
@@ -30,12 +30,15 @@ export const Route = createFileRoute("/_app/reception/patients")({
 
 function ReceptionPatientsPage() {
   const navigate = useNavigate();
+  const receptionStore = useReceptionStore();
   const {
-    data: patients,
+    data: apiPatients,
+    setData: setApiPatients,
     loading: patientsLoading,
     error: patientsError,
     reload,
   } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
+  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
   const [form, setForm] = useState({ ...emptyPatient, id: nextPatientId(patients?.length ?? 0) });
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -53,6 +56,35 @@ function ReceptionPatientsPage() {
   const selectedPatient = patients?.find((item) => item.id === selectedPatientId) ?? null;
   const isEditing = mode === "edit";
   const isViewing = mode === "view" && selectedPatient;
+
+  const mirrorPatient = (patient) => {
+    receptionStore.setReceptionState((current) => {
+      const existingIndex = current.patients.findIndex((item) => item.id === patient.id);
+      const nextPatients =
+        existingIndex >= 0
+          ? current.patients.map((item, index) => (index === existingIndex ? patient : item))
+          : [...current.patients, patient];
+
+      return { ...current, patients: nextPatients };
+    });
+    setApiPatients((current) => {
+      const existingIndex = current.findIndex((item) => item.id === patient.id);
+      if (existingIndex >= 0) {
+        return current.map((item, index) => (index === existingIndex ? patient : item));
+      }
+      return current.length > 0 ? [...current, patient] : current;
+    });
+  };
+
+  const removeMirroredPatient = (patientId) => {
+    receptionStore.setReceptionState((current) => ({
+      ...current,
+      patients: current.patients.filter((item) => item.id !== patientId),
+      appointments: current.appointments.filter((item) => item.patientId !== patientId),
+      bills: current.bills.filter((item) => item.patientId !== patientId),
+    }));
+    setApiPatients((current) => current.filter((item) => item.id !== patientId));
+  };
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const toggleChronic = (disease) => {
@@ -124,9 +156,14 @@ function ReceptionPatientsPage() {
     if (!confirmed) return;
     setSaving(true);
     try {
-      await api.patients.remove(patient.id);
+      try {
+        await api.patients.remove(patient.id);
+        await reload();
+      } catch (err) {
+        if (apiPatients.length > 0 && !patientsError) throw err;
+      }
+      removeMirroredPatient(patient.id);
       toast.success("Patient deleted successfully");
-      await reload();
       setSelectedPatientId(null);
       setMode("list");
     } catch (err) {
@@ -186,16 +223,30 @@ function ReceptionPatientsPage() {
     setSaving(true);
     try {
       if (isEditing) {
-        await api.patients.update(selectedPatientId, toPatientPayload(patient));
+        let savedPatient = normalizePatient(patient);
+        try {
+          const response = await api.patients.update(selectedPatientId, toPatientPayload(patient));
+          savedPatient = normalizePatient(getPayload(response) ?? patient);
+          await reload();
+        } catch (err) {
+          if (apiPatients.length > 0 && !patientsError) throw err;
+        }
+        mirrorPatient(savedPatient);
         toast.success("Patient updated successfully");
         setMode("list");
       } else {
-        const response = await api.patients.create(toPatientPayload(patient));
-        const savedPatient = normalizePatient(getPayload(response) ?? patient);
+        let savedPatient = normalizePatient(patient);
+        try {
+          const response = await api.patients.create(toPatientPayload(patient));
+          savedPatient = normalizePatient(getPayload(response) ?? patient);
+          await reload();
+        } catch (err) {
+          if (apiPatients.length > 0 && !patientsError) throw err;
+        }
+        mirrorPatient(savedPatient);
         toast.success("Patient saved successfully");
         navigate({ to: "/reception/appointments", search: { patientId: savedPatient.id } });
       }
-      await reload();
       if (!isEditing) return;
       setSelectedPatientId(null);
     } catch (err) {
@@ -757,4 +808,3 @@ function SelectField({ label, value, onChange, options }) {
     </div>
   );
 }
-

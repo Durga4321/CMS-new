@@ -8,6 +8,7 @@ import { useApiResource } from "@/hooks/use-api-resource";
 import { api, getPayload, toArray } from "@/lib/api";
 import { normalizeAppointment, normalizeBill, normalizePatient } from "@/lib/api-normalizers";
 import { digitsOnly, firstError, validateNumber } from "@/lib/form-validation";
+import { nextBillId, useReceptionStore } from "@/lib/reception-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/reception/billing")({
@@ -17,12 +18,13 @@ export const Route = createFileRoute("/_app/reception/billing")({
 
 function BillingPage() {
   const search = useSearch({ strict: false });
-  const { data: patients, error: patientsError } = useApiResource(
+  const receptionStore = useReceptionStore();
+  const { data: apiPatients, error: patientsError } = useApiResource(
     async () => toArray(await api.patients.list()).map(normalizePatient),
     [],
   );
   const {
-    data: appointments,
+    data: apiAppointments,
     loading: appointmentsLoading,
     error: appointmentsError,
     reload: reloadAppointments,
@@ -31,11 +33,15 @@ function BillingPage() {
     [],
   );
   const {
-    data: bills,
+    data: apiBills,
     loading: billsLoading,
     error: billsError,
     reload: reloadBills,
   } = useApiResource(async () => toArray(await api.billing.list()).map(normalizeBill), []);
+  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
+  const appointments =
+    apiAppointments.length > 0 ? apiAppointments : receptionStore.appointments;
+  const bills = apiBills.length > 0 ? apiBills : receptionStore.bills;
   const billableAppointments = appointments.filter((item) =>
     ["Waiting", "Consulted", "Completed"].includes(item.status),
   );
@@ -66,6 +72,8 @@ function BillingPage() {
     let mounted = true;
     setAppointmentBill(null);
     if (!form.appointmentId) return undefined;
+    const localBill = receptionStore.bills.find((item) => item.appointmentId === form.appointmentId);
+    if (localBill) setAppointmentBill(localBill);
     api.billing
       .byAppointment(form.appointmentId)
       .then((response) => {
@@ -79,7 +87,7 @@ function BillingPage() {
     return () => {
       mounted = false;
     };
-  }, [form.appointmentId]);
+  }, [form.appointmentId, receptionStore.bills]);
 
   const appointment = appointments.find((item) => item.id === form.appointmentId);
   const patient = patients.find((item) => item.id === appointment?.patientId);
@@ -124,12 +132,28 @@ function BillingPage() {
     };
     setSaving(true);
     try {
-      const response = await api.billing.create(bill);
-      setAppointmentBill(normalizeBill(getPayload(response) ?? bill));
+      let savedBill = normalizeBill({ ...bill, id: nextBillId(bills.length) });
+      try {
+        const response = await api.billing.create(bill);
+        savedBill = normalizeBill(getPayload(response) ?? savedBill);
+        reloadBills();
+        reloadAppointments();
+      } catch (err) {
+        if (apiBills.length > 0 && !billsError) throw err;
+      }
+      receptionStore.setReceptionState((current) => ({
+        ...current,
+        bills: [
+          ...current.bills.filter((item) => item.id !== savedBill.id),
+          savedBill,
+        ],
+        appointments: current.appointments.map((item) =>
+          item.id === appointment.id ? { ...item, status: "Paid" } : item,
+        ),
+      }));
+      setAppointmentBill(savedBill);
       setForm((current) => ({ ...current, status: "Paid" }));
       toast.success("Payment done. Invoice generated.");
-      reloadBills();
-      reloadAppointments();
     } catch (err) {
       setMessage(err?.message ?? "Unable to generate bill");
       toast.error(err?.message ?? "Unable to generate bill");

@@ -20,9 +20,17 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { api, clearAuthToken, getAuthUser, toArray } from "@/lib/api";
 import { normalizeNotification } from "@/lib/api-normalizers";
+import { normalizeRole } from "@/lib/auth-routing";
 import { cn } from "@/lib/utils";
 const titleMap = {
+  "/admin-dashboard": "Dashboard",
   "/dashboard": "Dashboard",
+  "/doctors": "Doctor Management",
+  "/staff": "Staff Management",
+  "/schedule": "Schedule Setup",
+  "/patients": "Patient Overview",
+  "/appointments": "Appointment Monitoring",
+  "/admin-reports": "Admin Reports",
   "/clinics": "Clinic Management",
   "/admins": "Admin Management",
   "/users": "User Management",
@@ -33,50 +41,85 @@ const titleMap = {
   "/profile": "Profile",
   "/settings": "System Settings",
   "/reception": "Reception Dashboard",
+  "/doctor": "Doctor Dashboard",
+  "/doctor/patients": "Doctor Patients",
+  "/doctor/consultations": "Consultations",
+  "/doctor/prescriptions": "Prescriptions",
 };
 
 const adminSearchModules = [
   {
     label: "Dashboard",
-    description: "Overview and platform metrics",
-    to: "/dashboard",
-    terms: ["home", "overview", "dashboard"],
+    description: "Admin overview, doctors, patients, appointments and revenue",
+    to: "/admin-dashboard",
+    terms: ["home", "overview", "dashboard", "total doctors", "total patients", "revenue"],
   },
   {
-    label: "Clinic Management",
-    description: "Clinics, locations, and clinic records",
-    to: "/clinics",
-    terms: ["clinic", "clinics", "clinic admin", "clinic management", "location", "locations"],
+    label: "Manage Doctors",
+    description: "Doctor list, add doctor, edit doctor and schedule setup",
+    to: "/doctors",
+    terms: [
+      "doctor",
+      "doctors",
+      "manage doctors",
+      "add doctor",
+      "edit doctor",
+      "specialization",
+      "consultation fee",
+    ],
   },
   {
-    label: "Admin Management",
-    description: "Clinic admins and access",
-    to: "/admins",
-    terms: ["admin", "admins", "administrator", "clinic admin", "admin management"],
+    label: "Manage Staff",
+    description: "Staff list, add staff, roles and disable access",
+    to: "/staff",
+    terms: ["staff", "manage staff", "add staff", "role", "disable staff", "employee"],
   },
   {
-    label: "User Management",
-    description: "Users and patient accounts",
-    to: "/users",
-    terms: ["user", "users", "patient", "patients", "user management"],
+    label: "Schedule Setup",
+    description: "Global schedule settings, slot duration, working hours and holidays",
+    to: "/schedule",
+    terms: [
+      "schedule",
+      "slot",
+      "slot duration",
+      "working hours",
+      "holiday",
+      "holidays",
+      "clinic hours",
+    ],
   },
   {
-    label: "Roles & Permissions",
-    description: "Roles and module permissions",
-    to: "/roles",
-    terms: ["role", "roles", "permission", "permissions", "access"],
+    label: "View Patients",
+    description: "Patient list, patient detail, visit history and prescriptions",
+    to: "/patients",
+    terms: [
+      "patient",
+      "patients",
+      "view patients",
+      "patient detail",
+      "visit history",
+      "prescription",
+    ],
   },
   {
-    label: "Reports & Analytics",
-    description: "Reports, analytics, and exports",
-    to: "/reports",
-    terms: ["report", "reports", "analytics", "insights"],
+    label: "View Appointments",
+    description: "Appointment list, date filter, doctor filter and status monitoring",
+    to: "/appointments",
+    terms: [
+      "appointment",
+      "appointments",
+      "view appointments",
+      "date",
+      "doctor filter",
+      "status",
+      "time slot",
+    ],
   },
   {
-    label: "Audit Logs",
-    description: "Admin activity and audit trail",
-    to: "/logs",
-    terms: ["log", "logs", "audit", "activity"],
+    label: "Reports",
+    description: "Daily appointments, revenue report and doctor-wise report",
+    to: "/admin-reports",
+    terms: ["report", "reports", "daily appointments", "revenue", "doctor wise", "chart", "table"],
   },
   {
     label: "Notifications",
@@ -86,9 +129,129 @@ const adminSearchModules = [
   },
   {
     label: "System Settings",
+    description: "Admin settings and configuration",
+    to: "/settings",
+    terms: ["setting", "settings", "system", "configuration", "config"],
+  },
+];
+
+const superAdminSearchModules = [
+  {
+    label: "Dashboard",
+    description: "Super admin overview for clinics, admins, users, roles and logs",
+    to: "/dashboard",
+    terms: ["home", "overview", "dashboard", "super admin", "platform"],
+  },
+  {
+    label: "Clinics",
+    description: "Clinic list, add clinic, edit clinic and active status",
+    to: "/clinics",
+    terms: ["clinic", "clinics", "add clinic", "edit clinic", "location", "contact"],
+  },
+  {
+    label: "Admins",
+    description: "Admin list, create admin, assign clinic and access status",
+    to: "/admins",
+    terms: ["admin", "admins", "create admin", "assign clinic", "access"],
+  },
+  {
+    label: "Users",
+    description: "All users, roles and account status",
+    to: "/users",
+    terms: ["user", "users", "account", "status"],
+  },
+  {
+    label: "Roles & Permissions",
+    description: "Role setup and module permissions",
+    to: "/roles",
+    terms: ["role", "roles", "permission", "permissions", "access"],
+  },
+  {
+    label: "Audit Logs",
+    description: "Login history and platform activity",
+    to: "/logs",
+    terms: ["audit", "logs", "login history", "activity"],
+  },
+  {
+    label: "Reports",
+    description: "Platform reports and operating insights",
+    to: "/reports",
+    terms: ["report", "reports", "analytics", "insights"],
+  },
+  {
+    label: "Notifications",
+    description: "Announcements and notification history",
+    to: "/notifications",
+    terms: ["notification", "notifications", "message", "messages"],
+  },
+  {
+    label: "Settings",
     description: "Platform settings and configuration",
     to: "/settings",
     terms: ["setting", "settings", "system", "configuration", "config"],
+  },
+];
+
+const doctorSearchModules = [
+  {
+    label: "Dashboard",
+    description: "Total appointments, pending, completed and today's patient list",
+    to: "/doctor",
+    terms: [
+      "doctor dashboard",
+      "dashboard",
+      "appointments",
+      "pending",
+      "completed",
+      "today patients",
+    ],
+  },
+  {
+    label: "Patients",
+    description: "Patient list, patient info, history, visits and past prescriptions",
+    to: "/doctor/patients",
+    terms: [
+      "patient",
+      "patients",
+      "history",
+      "medical history",
+      "previous visits",
+      "past prescriptions",
+    ],
+  },
+  {
+    label: "Consultations",
+    description: "Waiting, in progress and completed consultation status",
+    to: "/doctor/consultations",
+    terms: [
+      "consultation",
+      "consultations",
+      "waiting",
+      "in progress",
+      "completed",
+      "status",
+      "start consultation",
+    ],
+  },
+  {
+    label: "Prescriptions",
+    description: "Diagnosis, medicines, dosage, notes and saved prescriptions",
+    to: "/doctor/prescriptions",
+    terms: [
+      "prescription",
+      "prescriptions",
+      "diagnosis",
+      "medicine",
+      "medicines",
+      "dosage",
+      "notes",
+    ],
+  },
+  {
+    label: "Notifications",
+    description: "Doctor alerts and patient updates",
+    to: "/notifications",
+    terms: ["notification", "notifications", "alerts", "updates"],
   },
 ];
 
@@ -136,22 +299,32 @@ function getScore(module, query) {
   return normalized.split(/\s+/).filter((part) => haystack.includes(part)).length;
 }
 
+function getTitle(path) {
+  const match = Object.keys(titleMap)
+    .sort((a, b) => b.length - a.length)
+    .find((route) => path === route || path.startsWith(`${route}/`));
+  return titleMap[match] ?? "Overview";
+}
+
 export function Topbar({ onMenu }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const segments = path.split("/").filter(Boolean);
-  const title = titleMap[`/${segments[0] ?? ""}`] ?? "Overview";
+  const title = getTitle(path);
   const authUser = getAuthUser();
-  const role = authUser?.role?.toLowerCase?.() ?? "admin";
-  const isReceptionist = role === "receptionist";
   const storedName = authUser?.name ?? authUser?.Name ?? authUser?.fullName ?? authUser?.FullName;
   const email = authUser?.email ?? authUser?.Email ?? "";
+  const role = normalizeRole(authUser?.role, email) || "admin";
+  const isReceptionist = role === "receptionist";
+  const isDoctor = role === "doctor";
   const isSuperAdmin = role === "superadmin" || email.toLowerCase() === SUPER_ADMIN_EMAIL;
   const accountName =
     isSuperAdmin && (!storedName || storedName.toLowerCase() === "superadmin")
       ? "DP"
-      : storedName || (isReceptionist ? "Reception Desk" : "Admin");
-  const accountRole = formatRole(authUser?.role ?? (isReceptionist ? "receptionist" : "admin"));
+      : storedName || (isDoctor ? "Doctor" : isReceptionist ? "Reception Desk" : "Admin");
+  const accountRole = formatRole(
+    authUser?.role ?? (isDoctor ? "doctor" : isReceptionist ? "receptionist" : "admin"),
+  );
   const accountInitials = getInitials(accountName);
   const [openNotif, setOpenNotif] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -159,7 +332,13 @@ export function Topbar({ onMenu }) {
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef(null);
   const unreadCount = notifications.filter((notification) => !notification.read).length;
-  const searchModules = isReceptionist ? receptionistSearchModules : adminSearchModules;
+  const searchModules = isReceptionist
+    ? receptionistSearchModules
+    : isDoctor
+      ? doctorSearchModules
+      : isSuperAdmin
+        ? superAdminSearchModules
+        : adminSearchModules;
   const searchResults = useMemo(() => {
     return searchModules
       .map((module) => ({ ...module, score: getScore(module, searchQuery) }))
@@ -216,11 +395,13 @@ export function Topbar({ onMenu }) {
   }, []);
 
   useEffect(() => {
-    if (isReceptionist) {
+    if (isReceptionist || isDoctor) {
       setNotifications([
         {
-          title: "Front desk ready",
-          message: "Static reception flow is available for patient, appointment, and billing work.",
+          title: isDoctor ? "Doctor console ready" : "Front desk ready",
+          message: isDoctor
+            ? "Doctor flow is available for patients, consultations, and prescriptions."
+            : "Static reception flow is available for patient, appointment, and billing work.",
           time: "Now",
           type: "info",
           read: false,
@@ -241,7 +422,7 @@ export function Topbar({ onMenu }) {
     return () => {
       mounted = false;
     };
-  }, [isReceptionist]);
+  }, [isDoctor, isReceptionist]);
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
       <div className="flex h-16 items-center gap-3 px-4 lg:px-6">
@@ -256,7 +437,15 @@ export function Topbar({ onMenu }) {
           <h1 className="text-base font-semibold leading-none tracking-tight">{title}</h1>
           <nav className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Link
-              to={isReceptionist ? "/reception" : "/dashboard"}
+              to={
+                isReceptionist
+                  ? "/reception"
+                  : isDoctor
+                    ? "/doctor"
+                    : isSuperAdmin
+                      ? "/dashboard"
+                      : "/admin-dashboard"
+              }
               className="hover:text-foreground"
             >
               Home
@@ -280,7 +469,11 @@ export function Topbar({ onMenu }) {
               placeholder={
                 isReceptionist
                   ? "Search patients, doctors, bills..."
-                  : "Search clinics, admins, users..."
+                  : isDoctor
+                    ? "Search patients, consultations, prescriptions..."
+                    : isSuperAdmin
+                      ? "Search clinics, admins, users, roles..."
+                      : "Search doctors, staff, schedules..."
               }
               className="h-9 w-72 rounded-lg border border-input bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
@@ -382,14 +575,19 @@ export function Topbar({ onMenu }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-1.5 py-1 text-left transition-colors hover:bg-accent">
+              <button className="flex max-w-[220px] items-center gap-2 rounded-lg border border-border bg-card px-1.5 py-1 text-left transition-colors hover:bg-accent">
                 <Avatar className="h-7 w-7">
                   <AvatarFallback className="bg-gradient-primary text-xs text-primary-foreground">
                     {accountInitials}
                   </AvatarFallback>
                 </Avatar>
-                <div className="hidden pr-2 sm:block">
-                  <div className="text-xs font-semibold leading-tight">{accountName}</div>
+                <div className="hidden min-w-0 pr-2 sm:block">
+                  <div
+                    className="max-w-[140px] truncate text-xs font-semibold leading-tight"
+                    title={accountName}
+                  >
+                    {accountName}
+                  </div>
                   <div className="text-[11px] text-muted-foreground">{accountRole}</div>
                 </div>
               </button>
@@ -425,12 +623,12 @@ export function Topbar({ onMenu }) {
 }
 
 function formatRole(value) {
-  const role = String(value ?? "").toLowerCase();
-  if (role.includes("superadmin") || role.includes("super_admin")) return "Super Admin";
-  if (role.includes("reception")) return "Receptionist";
-  if (role.includes("doctor")) return "Doctor";
-  if (role.includes("patient")) return "Patient";
-  if (role.includes("admin")) return "Admin";
+  const role = normalizeRole(value);
+  if (role === "superadmin") return "Super Admin";
+  if (role === "receptionist") return "Receptionist";
+  if (role === "doctor") return "Doctor";
+  if (role === "patient") return "Patient";
+  if (role === "admin") return "Admin";
   return "User";
 }
 

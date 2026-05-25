@@ -41,11 +41,13 @@ import {
   EMAIL_INPUT_PATTERN,
   firstError,
   lettersOnly,
-  validateAddress,
   validateEmail,
+  validateLocation,
   validateName,
   validatePhone,
+  validateUniquePhone,
 } from "@/lib/form-validation";
+import { exportCsv } from "@/lib/export-utils";
 import { toast } from "sonner";
 export const Route = createFileRoute("/_app/clinics")({
   component: ClinicsPage,
@@ -55,53 +57,6 @@ const clinicStatusPayload = (active) => ({
   isActive: active,
   status: active ? "active" : "inactive",
 });
-
-const CLINIC_SERIALS_KEY = "clinic_command_center_clinic_serials";
-
-function clinicSerialKey(clinic) {
-  return String(
-    clinic.id ||
-      clinic.email ||
-      [clinic.name, clinic.contact, clinic.address || clinic.location].filter(Boolean).join("|"),
-  )
-    .trim()
-    .toLowerCase();
-}
-
-function readClinicSerials() {
-  if (typeof window === "undefined") return {};
-  try {
-    const value = JSON.parse(window.localStorage.getItem(CLINIC_SERIALS_KEY) ?? "{}");
-    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeClinicSerials(serials) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(CLINIC_SERIALS_KEY, JSON.stringify(serials));
-}
-
-function withStableClinicSerials(clinics) {
-  const serials = readClinicSerials();
-  let nextSerial =
-    Math.max(0, ...Object.values(serials).map((value) => Number(value) || 0)) + 1;
-  let changed = false;
-
-  const numberedClinics = clinics.map((clinic) => {
-    const key = clinicSerialKey(clinic);
-    if (!serials[key]) {
-      serials[key] = nextSerial;
-      nextSerial += 1;
-      changed = true;
-    }
-    return { ...clinic, serial: serials[key] };
-  });
-
-  if (changed) writeClinicSerials(serials);
-  return numberedClinics;
-}
 
 function ClinicsPage() {
   const [open, setOpen] = useState(false);
@@ -124,7 +79,7 @@ function ClinicsPage() {
     error,
     reload,
   } = useApiResource(
-    async () => withStableClinicSerials(toArray(await api.clinics.list()).map(normalizeClinic)),
+    async () => toArray(await api.clinics.list()).map(normalizeClinic),
     [],
     [],
   );
@@ -150,8 +105,9 @@ function ClinicsPage() {
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
       validateEmail(clinic.email),
-      validateAddress(clinic.address, "Location"),
+      validateLocation(clinic.address, "Location"),
       validatePhone(clinic.contact, "Contact number"),
+      validateUniquePhone(clinic.contact, clinics, "Contact number"),
     ]);
     if (validationError) {
       toast.error(validationError);
@@ -180,8 +136,9 @@ function ClinicsPage() {
     const validationError = firstError([
       validateName(clinic.name, "Clinic name"),
       validateEmail(clinic.email),
-      validateAddress(clinic.address, "Location"),
+      validateLocation(clinic.address, "Location"),
       validatePhone(clinic.contact, "Contact number"),
+      validateUniquePhone(clinic.contact, clinics, "Contact number", editing.id),
     ]);
     if (validationError) {
       toast.error(validationError);
@@ -195,7 +152,6 @@ function ClinicsPage() {
         ...getPayload(response),
         status: clinic.status,
       });
-      updated.serial = editing.serial;
       setClinics((current) =>
         current.map((item) => (item.id === editing.id ? updated : item)),
       );
@@ -218,28 +174,16 @@ function ClinicsPage() {
   };
 
   const exportClinics = () => {
-    if (!clinics.length) return;
     const headers = ["S.No", "Name", "Location", "Status", "Contact", "Email"];
-    const rows = clinics.map((clinic) => [
-      clinic.serial,
+    const rows = filtered.map((clinic, index) => [
+      index + 1,
       clinic.name,
       clinic.location,
       clinic.status,
       clinic.contact,
       clinic.email,
     ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "clinics.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    exportCsv("clinics.csv", headers, rows);
   };
 
   const updateClinicStatus = async (clinic, active) => {
@@ -375,28 +319,28 @@ function ClinicsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
+              {filtered.map((c, index) => (
                 <tr
                   key={c.id}
                   className="border-b border-border last:border-0 transition-colors hover:bg-secondary/40"
                 >
-                  <td className="px-5 py-3.5 text-muted-foreground whitespace-nowrap">{c.serial}</td>
+                  <td className="px-5 py-3.5 text-muted-foreground whitespace-nowrap">{index + 1}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary-soft text-primary">
                         <Building2 className="h-4 w-4" />
                       </div>
-                      <div>
-                        <div className="font-medium">{c.name}</div>
+                      <div className="min-w-0">
+                        <div className="max-w-[220px] truncate font-medium" title={c.name}>{c.name}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{c.location}</td>
+                  <td className="max-w-[260px] truncate px-5 py-3.5 text-muted-foreground" title={c.location}>{c.location}</td>
                   <td className="px-5 py-3.5">
                     <StatusBadge status={c.status} />
                   </td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{c.contact}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{c.email}</td>
+                  <td className="whitespace-nowrap px-5 py-3.5 text-muted-foreground">{c.contact}</td>
+                  <td className="max-w-[240px] truncate px-5 py-3.5 text-muted-foreground" title={c.email}>{c.email}</td>
                   <td className="px-5 py-3.5 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -409,7 +353,13 @@ function ClinicsPage() {
                           <Eye className="mr-2 h-4 w-4" />
                           View
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditing(c)}>
+                        <DropdownMenuItem
+                          disabled={c.status === "inactive"}
+                          onClick={() => {
+                            if (c.status === "inactive") return toast.error("Inactive clinics cannot be edited");
+                            setEditing(c);
+                          }}
+                        >
                           <Edit2 className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
@@ -476,6 +426,7 @@ function ClinicsPage() {
                 required
                 inputMode="text"
                 dataKind="name"
+                maxLength={80}
               />
               <Field
                 name="email"
@@ -492,7 +443,7 @@ function ClinicsPage() {
                 name="address"
                 label="Location"
                 icon={MapPin}
-                placeholder="123 Main Street, Hyderabad"
+                placeholder="Hyderabad, Telangana, India"
                 required
               />
               <Field
@@ -521,7 +472,7 @@ function ClinicsPage() {
                   Allow staff to log in immediately
                 </div>
               </div>
-              <Switch name="isActive" defaultChecked />
+              <Switch checked={newClinicActive} onCheckedChange={setNewClinicActive} />
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setOpen(false)}>
@@ -565,6 +516,10 @@ function ClinicsPage() {
                 </Button>
                 <Button
                   onClick={() => {
+                    if (viewing.status === "inactive") {
+                      toast.error("Inactive clinics cannot be edited");
+                      return;
+                    }
                     setEditing(viewing);
                     setViewing(null);
                   }}
@@ -593,6 +548,7 @@ function ClinicsPage() {
                   defaultValue={editing.name}
                   required
                   dataKind="name"
+                  maxLength={80}
                 />
                 <Field
                   name="email"
@@ -651,7 +607,7 @@ function DetailRow({ label, value }) {
   return (
     <div className="flex items-center gap-3 text-sm">
       <div className="text-muted-foreground">{label}</div>
-      <div className="ml-auto text-right font-medium">{displayValue}</div>
+      <div className="ml-auto max-w-[280px] truncate text-right font-medium" title={String(displayValue)}>{displayValue}</div>
     </div>
   );
 }

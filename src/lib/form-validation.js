@@ -6,12 +6,14 @@ const BLOCKED_EMAIL_DOMAINS = new Set([
   "hmail.com",
   "ghail.com",
   "gmhil.com",
+  "gmakil.com",
   "gmal.com",
   "gamil.com",
 ]);
 export const EMAIL_INPUT_PATTERN =
   "[A-Za-z0-9._%+\\x2d]+@[A-Za-z0-9\\x2d]+(?:\\.[A-Za-z0-9\\x2d]+)+";
 const PHONE_LENGTH = 10;
+export const MAX_NAME_LENGTH = 80;
 
 export function digitsOnly(value, maxLength = PHONE_LENGTH) {
   return String(value ?? "")
@@ -40,6 +42,7 @@ export function required(value, label) {
 export function validateName(value, label = "Name") {
   const text = String(value ?? "").trim();
   if (!text) return `${label} is required`;
+  if (text.length > MAX_NAME_LENGTH) return `${label} must be ${MAX_NAME_LENGTH} characters or fewer`;
   if (!NAME_PATTERN.test(text)) return `${label} can contain letters and spaces only`;
   return "";
 }
@@ -73,7 +76,12 @@ export function validateEmail(value, label = "Email") {
 export function validatePassword(value, label = "Password") {
   const password = String(value ?? "");
   if (!password) return `${label} is required`;
-  if (password.length < 6) return `${label} must be at least 6 characters`;
+  if (/\s/.test(password)) return `${label} cannot contain spaces`;
+  if (password.length < 8) return `${label} must be at least 8 characters`;
+  if (!/[A-Z]/.test(password)) return `${label} must include at least one uppercase letter`;
+  if (!/[a-z]/.test(password)) return `${label} must include at least one lowercase letter`;
+  if (!/[0-9]/.test(password)) return `${label} must include at least one number`;
+  if (!/[^A-Za-z0-9]/.test(password)) return `${label} must include at least one special character`;
   return "";
 }
 
@@ -99,6 +107,38 @@ export function validateAddress(value, label = "Address") {
   if (!/[A-Za-z]/.test(address)) return `${label} must include a meaningful location`;
   if (!/[A-Za-z]{3,}/.test(address)) return `${label} must include a valid place or street name`;
   return "";
+}
+
+export function validateLocation(value, label = "Location") {
+  const location = String(value ?? "").trim();
+  if (!location) return `${label} is required`;
+  if (location.length > 120) return `${label} must be 120 characters or fewer`;
+  if (!/^[A-Za-z][A-Za-z\s,.'-]*$/.test(location)) {
+    return `${label} can contain letters, spaces, commas, periods, apostrophes and hyphens only`;
+  }
+
+  const parts = location
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return `${label} must include city and state/country separated by comma`;
+  if (parts.some((part) => part.length < 3 || !/[A-Za-z]{3,}/.test(part))) {
+    return `${label} must include valid city, state or country names`;
+  }
+  return "";
+}
+
+export function validateUniquePhone(phone, records, label = "Phone number", currentId = "") {
+  const normalizedPhone = digitsOnly(phone);
+  if (!normalizedPhone) return "";
+  const duplicate = records.some((record) => {
+    if (currentId && String(record.id) === String(currentId)) return false;
+    const recordPhone = digitsOnly(
+      record.phone ?? record.mobile ?? record.contact ?? record.contactNumber ?? record.mobileNumber,
+    );
+    return recordPhone && recordPhone === normalizedPhone;
+  });
+  return duplicate ? `${label} already exists` : "";
 }
 
 export function validatePastOrTodayDate(value, label = "Date") {

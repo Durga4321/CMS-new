@@ -5,90 +5,8 @@ const STORE_KEY = "clinic_reception_flow_data";
 const today = () => new Date().toISOString().slice(0, 10);
 
 const initialState = {
-  patients: [
-    {
-      id: "PID-1001",
-      name: "Aarav Sharma",
-      age: "34",
-      dob: "1990-08-12",
-      gender: "Male",
-      type: "OPD",
-      phone: "9876543210",
-      email: "aarav@example.com",
-      street: "Road 12",
-      city: "Hyderabad",
-      state: "Telangana",
-      pinCode: "500034",
-      emergencyName: "Riya Sharma",
-      emergencyPhone: "9876543211",
-      drugAllergies: "Penicillin",
-      foodAllergies: "",
-      environmentalAllergies: "Pollen",
-      chronicDiseases: ["Hypertension"],
-      otherChronic: "",
-      medicationName: "Amlodipine",
-      medicationDosage: "5mg",
-      medicationFrequency: "Once daily",
-      surgeryName: "Appendectomy",
-      surgeryYear: "2010",
-      previousVisitDate: "2026-05-01",
-      previousDoctor: "Dr. Meera Iyer",
-      previousComplaint: "Headache",
-      previousDiagnosis: "High BP",
-      previousTreatment: "Medication adjusted",
-    },
-    {
-      id: "PID-1002",
-      name: "Neha Reddy",
-      age: "28",
-      dob: "1998-03-20",
-      gender: "Female",
-      type: "OPD",
-      phone: "9876500011",
-      email: "neha@example.com",
-      street: "Madhapur Main Road",
-      city: "Hyderabad",
-      state: "Telangana",
-      pinCode: "500081",
-      emergencyName: "Vikram Reddy",
-      emergencyPhone: "9876500012",
-      drugAllergies: "",
-      foodAllergies: "Peanuts",
-      environmentalAllergies: "",
-      chronicDiseases: ["Asthma"],
-      otherChronic: "",
-      medicationName: "Inhaler",
-      medicationDosage: "100mcg",
-      medicationFrequency: "As needed",
-      surgeryName: "",
-      surgeryYear: "",
-      previousVisitDate: "",
-      previousDoctor: "",
-      previousComplaint: "",
-      previousDiagnosis: "",
-      previousTreatment: "",
-    },
-  ],
-  appointments: [
-    {
-      id: "APT-2101",
-      patientId: "PID-1001",
-      patient: "Aarav Sharma",
-      doctor: "Dr. Meera Iyer",
-      date: today(),
-      time: "10:00",
-      status: "Waiting",
-    },
-    {
-      id: "APT-2102",
-      patientId: "PID-1002",
-      patient: "Neha Reddy",
-      doctor: "Dr. Arjun Rao",
-      date: today(),
-      time: "11:00",
-      status: "Consulted",
-    },
-  ],
+  patients: [],
+  appointments: [],
   bills: [],
 };
 
@@ -131,10 +49,23 @@ export const emptyPatient = {
 function readState() {
   if (typeof window === "undefined") return initialState;
   try {
-    return JSON.parse(window.localStorage.getItem(STORE_KEY) ?? "") || initialState;
+    return sanitizeState(JSON.parse(window.localStorage.getItem(STORE_KEY) ?? "") || initialState);
   } catch {
     return initialState;
   }
+}
+
+function sanitizeState(state) {
+  const legacyPatientIds = new Set(["PID-1001", "PID-1002"]);
+  const patients = Array.isArray(state?.patients)
+    ? state.patients.filter((patient) => !legacyPatientIds.has(patient?.id))
+    : [];
+  const appointments = Array.isArray(state?.appointments)
+    ? state.appointments.filter((appointment) => !legacyPatientIds.has(appointment?.patientId))
+    : [];
+  const bills = Array.isArray(state?.bills) ? state.bills : [];
+
+  return { ...initialState, ...state, patients, appointments, bills };
 }
 
 function writeState(nextState) {

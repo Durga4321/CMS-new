@@ -3,6 +3,9 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const TOKEN_KEY = "clinic_command_center_token";
 const USER_KEY = "clinic_command_center_user";
 const USER_ACTIVITY_KEY = "clinic_command_center_user_activity";
+const USER_DIRECTORY_KEY = "clinic_command_center_user_directory";
+const USER_LOGIN_HISTORY_KEY = "clinic_command_center_login_history";
+const SYSTEM_LOG_KEY = "clinic_command_center_system_logs";
 
 export function getAuthToken() {
   if (typeof window === "undefined") return "";
@@ -49,13 +52,18 @@ export function markUserActive(user, timestamp = new Date()) {
     activity[email] = timestamp.toISOString();
     window.localStorage.setItem(USER_ACTIVITY_KEY, JSON.stringify(activity));
   } catch {
-    window.localStorage.setItem(USER_ACTIVITY_KEY, JSON.stringify({ [email]: timestamp.toISOString() }));
+    window.localStorage.setItem(
+      USER_ACTIVITY_KEY,
+      JSON.stringify({ [email]: timestamp.toISOString() }),
+    );
   }
 }
 
 export function getStoredUserActivity(email) {
   if (typeof window === "undefined") return "";
-  const key = String(email ?? "").trim().toLowerCase();
+  const key = String(email ?? "")
+    .trim()
+    .toLowerCase();
   if (!key) return "";
   try {
     const activity = JSON.parse(window.localStorage.getItem(USER_ACTIVITY_KEY) ?? "{}");
@@ -63,6 +71,78 @@ export function getStoredUserActivity(email) {
   } catch {
     return "";
   }
+}
+
+export function rememberUserDirectoryEntry(user, source = "system") {
+  if (typeof window === "undefined" || !user) return;
+  const email = readField(user, ["email", "Email", "username", "Username"]).toLowerCase();
+  if (!email) return;
+  const entry = normalizeDirectoryUser(user, source);
+  try {
+    const users = JSON.parse(window.localStorage.getItem(USER_DIRECTORY_KEY) ?? "{}");
+    users[email] = { ...(users[email] ?? {}), ...entry };
+    window.localStorage.setItem(USER_DIRECTORY_KEY, JSON.stringify(users));
+  } catch {
+    window.localStorage.setItem(USER_DIRECTORY_KEY, JSON.stringify({ [email]: entry }));
+  }
+}
+
+export function getStoredUserDirectory() {
+  if (typeof window === "undefined") return [];
+  try {
+    return Object.values(JSON.parse(window.localStorage.getItem(USER_DIRECTORY_KEY) ?? "{}"));
+  } catch {
+    return [];
+  }
+}
+
+export function getRegisteredUsers() {
+  if (typeof window === "undefined") return [];
+  try {
+    return Object.values(
+      JSON.parse(window.localStorage.getItem("clinic_registered_users") ?? "{}"),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function recordLoginHistory(user, details = {}) {
+  if (typeof window === "undefined" || !user) return;
+  const entry = normalizeLoginEntry(user, details);
+  rememberUserDirectoryEntry(user, "login");
+  appendStoredRow(USER_LOGIN_HISTORY_KEY, entry);
+  recordSystemLog({
+    user: entry.name,
+    email: entry.email,
+    role: entry.role,
+    action: "Login",
+    module: "Auth",
+    time: entry.time,
+    ip: entry.ip,
+  });
+}
+
+export function recordSystemLog(log) {
+  if (typeof window === "undefined" || !log) return;
+  appendStoredRow(SYSTEM_LOG_KEY, {
+    id: log.id ?? `local-log-${Date.now()}`,
+    user: log.user ?? log.name ?? log.email ?? "System",
+    email: log.email ?? "",
+    role: log.role ?? "",
+    action: log.action ?? "Updated",
+    module: log.module ?? "System",
+    time: log.time ?? new Date().toISOString(),
+    ip: log.ip ?? "",
+  });
+}
+
+export function getStoredLoginHistory() {
+  return readStoredRows(USER_LOGIN_HISTORY_KEY);
+}
+
+export function getStoredSystemLogs() {
+  return readStoredRows(SYSTEM_LOG_KEY);
 }
 
 export function clearAuthToken() {
@@ -271,6 +351,60 @@ function formatActivityTime(value) {
   });
 }
 
+function normalizeDirectoryUser(user, source) {
+  const firstLast = [user.firstName ?? user.first_name, user.lastName ?? user.last_name]
+    .filter(Boolean)
+    .join(" ");
+  const name = readField(
+    user,
+    ["name", "Name", "fullName", "FullName", "displayName", "username", "Username"],
+    firstLast,
+  );
+  return {
+    id: readField(user, ["id", "_id", "userId", "doctorId", "staffId", "adminId"], ""),
+    name: name || readField(user, ["email", "Email"], "User"),
+    email: readField(user, ["email", "Email", "username", "Username"], ""),
+    role: readField(user, ["role", "roleName", "userRole", "type"], "User"),
+    phone: readField(user, ["phone", "mobile", "phoneNumber", "mobileNumber"], ""),
+    clinic: readField(user, ["clinic", "clinicName", "assignedClinic"], ""),
+    memberSince: readField(
+      user,
+      ["memberSince", "createdAt", "created_at"],
+      new Date().toISOString(),
+    ),
+    lastActive: readField(user, ["lastActive", "lastLoginAt"], ""),
+    status: readField(user, ["status"], "active"),
+    source,
+  };
+}
+
+function normalizeLoginEntry(user, details) {
+  const directoryUser = normalizeDirectoryUser(user, "login");
+  return {
+    id: details.id ?? `login-${Date.now()}`,
+    name: directoryUser.name,
+    role: directoryUser.role,
+    email: directoryUser.email,
+    time: details.time ?? new Date().toISOString(),
+    ip: details.ip ?? readField(details, ["ipAddress", "ip_address"], ""),
+  };
+}
+
+function appendStoredRow(key, row) {
+  const rows = readStoredRows(key);
+  window.localStorage.setItem(key, JSON.stringify([row, ...rows].slice(0, 500)));
+}
+
+function readStoredRows(key) {
+  if (typeof window === "undefined") return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 const byId = (path, id) => `${path}/${encodeURIComponent(id)}`;
 const json = (method, body) => ({ method, body });
 const withQuery = (path, params = {}) => {
@@ -299,8 +433,7 @@ export const api = {
     login: (data) => apiRequest("/api/auth/login", { ...json("POST", data), auth: false }),
     forgotPassword: (data) =>
       apiRequest("/api/auth/forgot-password", { ...json("POST", data), auth: false }),
-    verifyOtp: (data) =>
-      apiRequest("/api/auth/verify-otp", { ...json("POST", data), auth: false }),
+    verifyOtp: (data) => apiRequest("/api/auth/verify-otp", { ...json("POST", data), auth: false }),
     resetPassword: (data) =>
       apiRequest("/api/auth/reset-password", { ...json("POST", data), auth: false }),
   },
@@ -315,6 +448,13 @@ export const api = {
     summary: () => apiRequest("/api/dashboard/summary"),
     revenueOverview: () => apiRequest("/api/dashboard/revenue-overview"),
     activities: () => apiRequest("/api/dashboard/activities"),
+  },
+  doctors: {
+    list: () => apiRequest("/api/doctors"),
+    create: (data) => apiRequest("/api/doctors", json("POST", data)),
+    get: (id) => apiRequest(byId("/api/doctors", id)),
+    update: (id, data) => apiRequest(byId("/api/doctors", id), json("PUT", data)),
+    remove: (id) => apiRequest(byId("/api/doctors", id), { method: "DELETE" }),
   },
   logs: {
     audit: () => apiRequest("/api/logs/audit"),
@@ -379,6 +519,14 @@ export const api = {
     updateEmail: (data) => apiRequest("/api/settings/email", json("PUT", data)),
     updateSms: (data) => apiRequest("/api/settings/sms", json("PUT", data)),
     updatePayment: (data) => apiRequest("/api/settings/payment", json("PUT", data)),
+  },
+  staff: {
+    list: () => apiRequest("/api/staff"),
+    create: (data) => apiRequest("/api/staff", json("POST", data)),
+    get: (id) => apiRequest(byId("/api/staff", id)),
+    update: (id, data) => apiRequest(byId("/api/staff", id), json("PUT", data)),
+    remove: (id) => apiRequest(byId("/api/staff", id), { method: "DELETE" }),
+    updateStatus: (id, data) => apiRequest(`${byId("/api/staff", id)}/status`, json("PUT", data)),
   },
   users: {
     list: () => apiRequest("/api/users"),

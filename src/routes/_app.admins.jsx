@@ -4,10 +4,12 @@ import {
   Plus,
   Search,
   Filter,
+  FileDown,
   MoreVertical,
   Edit2,
   Eye,
   Mail,
+  Phone,
   User2,
   KeyRound,
   ShieldCheck,
@@ -37,17 +39,22 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { api, getPayload, toArray } from "@/lib/api";
+import { api, getPayload, recordSystemLog, rememberUserDirectoryEntry, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeAdmin, normalizeClinic } from "@/lib/api-normalizers";
 import {
   cleanEmail,
+  digitsOnly,
   EMAIL_INPUT_PATTERN,
   firstError,
   lettersOnly,
   validateEmail,
   validateName,
+  validatePassword,
+  validatePhone,
+  validateUniquePhone,
 } from "@/lib/form-validation";
+import { exportCsv } from "@/lib/export-utils";
 import { toast } from "sonner";
 export const Route = createFileRoute("/_app/admins")({
   component: AdminsPage,
@@ -112,7 +119,7 @@ function AdminsPage() {
     (a) =>
       (a.name.toLowerCase().includes(q.toLowerCase()) ||
         a.email.toLowerCase().includes(q.toLowerCase())) &&
-      (clinicFilter === "all" || a.clinic.toLowerCase().includes(clinicFilter))
+      (clinicFilter === "all" || a.clinic.toLowerCase().includes(clinicFilter)),
   );
   const createAdmin = async (e) => {
     e.preventDefault();
@@ -120,6 +127,7 @@ function AdminsPage() {
     const admin = {
       name: String(form.get("name") ?? "").trim(),
       email: cleanEmail(form.get("email")),
+      phone: digitsOnly(form.get("phone")),
       password: String(form.get("password") ?? ""),
       ...adminAccessPayload({ clinic: newAdminClinic }),
       sendWelcomeEmail,
@@ -131,7 +139,9 @@ function AdminsPage() {
     const validationError = firstError([
       validateName(admin.name, "Full name"),
       validateEmail(admin.email),
-      admin.password.length >= 6 ? "" : "Temporary password must be at least 6 characters",
+      validatePhone(admin.phone),
+      validateUniquePhone(admin.phone, admins, "Phone number"),
+      validatePassword(admin.password, "Temporary password"),
       admin.role ? "" : "Role is required",
       admin.clinic ? "" : "Assigned clinic is required",
     ]);
@@ -141,6 +151,14 @@ function AdminsPage() {
     }
     try {
       await api.admins.create(admin);
+      rememberUserDirectoryEntry(admin, "admin");
+      recordSystemLog({
+        user: admin.name,
+        email: admin.email,
+        role: admin.role,
+        action: "Created admin",
+        module: "Users",
+      });
       setOpen(false);
       toast.success("Admin invitation sent");
       reload();
@@ -155,12 +173,15 @@ function AdminsPage() {
     const admin = {
       name: String(form.get("name") ?? "").trim(),
       email: cleanEmail(form.get("email")),
+      phone: digitsOnly(form.get("phone")),
       ...adminAccessPayload({ clinic: editAdminClinic }),
       ...adminStatusPayload(editAdminActive),
     };
     const validationError = firstError([
       validateName(admin.name, "Full name"),
       validateEmail(admin.email),
+      validatePhone(admin.phone),
+      validateUniquePhone(admin.phone, admins, "Phone number", editing.id),
       admin.role ? "" : "Role is required",
       admin.clinic ? "" : "Assigned clinic is required",
     ]);
@@ -192,16 +213,36 @@ function AdminsPage() {
       toast.error(err?.message ?? "Unable to update admin");
     }
   };
+  const exportAdmins = () => {
+    exportCsv(
+      "admins.csv",
+      ["Name", "Email", "Phone", "Assigned Clinic", "Role", "Status"],
+      filtered.map((admin) => [
+        admin.name,
+        admin.email,
+        admin.phone,
+        admin.clinic,
+        admin.role,
+        admin.status,
+      ]),
+    );
+  };
   return (
     <>
       <PageHeader
         title="Admin Management"
         description="Manage clinic administrators and their access levels."
         actions={
-          <Button onClick={() => setOpen(true)} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            Create Admin
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={exportAdmins} variant="outline" className="gap-1.5">
+              <FileDown className="h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button onClick={() => setOpen(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Create Admin
+            </Button>
+          </div>
         }
       />
 
@@ -270,6 +311,7 @@ function AdminsPage() {
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Name</th>
+                <th className="px-5 py-3 font-medium">Phone</th>
                 <th className="px-5 py-3 font-medium">Assigned Clinic</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Status</th>
@@ -292,13 +334,28 @@ function AdminsPage() {
                             .join("")}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <div className="font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground">{a.email}</div>
+                      <div className="min-w-0">
+                        <div className="max-w-[220px] truncate font-medium" title={a.name}>
+                          {a.name}
+                        </div>
+                        <div
+                          className="max-w-[240px] truncate text-xs text-muted-foreground"
+                          title={a.email}
+                        >
+                          {a.email}
+                        </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{a.clinic}</td>
+                  <td className="whitespace-nowrap px-5 py-3.5 text-muted-foreground">
+                    {a.phone || "-"}
+                  </td>
+                  <td
+                    className="max-w-[220px] truncate px-5 py-3.5 text-muted-foreground"
+                    title={a.clinic}
+                  >
+                    {a.clinic}
+                  </td>
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center gap-1 rounded-md bg-info/10 px-2 py-0.5 text-xs font-medium text-info">
                       <ShieldCheck className="h-3 w-3" />
@@ -320,7 +377,14 @@ function AdminsPage() {
                           <Eye className="mr-2 h-4 w-4" />
                           View
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditing(a)}>
+                        <DropdownMenuItem
+                          disabled={a.status === "inactive"}
+                          onClick={() => {
+                            if (a.status === "inactive")
+                              return toast.error("Inactive admins cannot be edited");
+                            setEditing(a);
+                          }}
+                        >
                           <Edit2 className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
@@ -331,7 +395,7 @@ function AdminsPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
                     {loading ? "Loading admins..." : "No admins found."}
                   </td>
                 </tr>
@@ -356,6 +420,7 @@ function AdminsPage() {
                 placeholder="Jane Smith"
                 required
                 dataKind="name"
+                maxLength={80}
               />
               <IconField
                 name="email"
@@ -369,12 +434,24 @@ function AdminsPage() {
                 title="Use a professional email such as jane@clinicname.com"
               />
               <IconField
+                name="phone"
+                label="Phone"
+                icon={Phone}
+                type="tel"
+                placeholder="9876543210"
+                required
+                maxLength={10}
+                inputMode="numeric"
+                dataKind="phone"
+              />
+              <IconField
                 name="password"
                 label="Temporary password"
                 icon={KeyRound}
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
+                dataKind="password"
                 placeholder="••••••••"
               />
               <div>
@@ -387,11 +464,7 @@ function AdminsPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium">Assigned clinic</label>
-                <Select
-                  name="clinic"
-                  value={newAdminClinic}
-                  onValueChange={setNewAdminClinic}
-                >
+                <Select name="clinic" value={newAdminClinic} onValueChange={setNewAdminClinic}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -410,10 +483,7 @@ function AdminsPage() {
                 <div className="text-sm font-medium">Send welcome email</div>
                 <div className="text-xs text-muted-foreground">With login instructions</div>
               </div>
-              <Switch
-                checked={sendWelcomeEmail}
-                onCheckedChange={setSendWelcomeEmail}
-              />
+              <Switch checked={sendWelcomeEmail} onCheckedChange={setSendWelcomeEmail} />
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setOpen(false)}>
@@ -439,9 +509,16 @@ function AdminsPage() {
                     {initials(viewing.name)}
                   </AvatarFallback>
                 </Avatar>
-                <div>
-                  <div className="font-semibold">{viewing.name}</div>
-                  <div className="text-xs text-muted-foreground">{viewing.email}</div>
+                <div className="min-w-0">
+                  <div className="max-w-[260px] truncate font-semibold" title={viewing.name}>
+                    {viewing.name}
+                  </div>
+                  <div
+                    className="max-w-[260px] truncate text-xs text-muted-foreground"
+                    title={viewing.email}
+                  >
+                    {viewing.email}
+                  </div>
                 </div>
                 <div className="ml-auto">
                   <StatusBadge status={viewing.status} />
@@ -449,6 +526,7 @@ function AdminsPage() {
               </div>
               <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-4">
                 <DetailRow label="Role" value={viewing.role} />
+                <DetailRow label="Phone" value={viewing.phone} />
                 <DetailRow label="Assigned clinic" value={viewing.clinic} />
                 <DetailRow label="Admin ID" value={viewing.id} />
               </div>
@@ -458,6 +536,10 @@ function AdminsPage() {
                 </Button>
                 <Button
                   onClick={() => {
+                    if (viewing.status === "inactive") {
+                      toast.error("Inactive admins cannot be edited");
+                      return;
+                    }
                     setEditing(viewing);
                     setViewing(null);
                   }}
@@ -486,6 +568,7 @@ function AdminsPage() {
                   defaultValue={editing.name}
                   required
                   dataKind="name"
+                  maxLength={80}
                 />
                 <IconField
                   name="email"
@@ -498,6 +581,17 @@ function AdminsPage() {
                   pattern={EMAIL_INPUT_PATTERN}
                   title="Use a professional email such as jane@clinicname.com"
                 />
+                <IconField
+                  name="phone"
+                  label="Phone"
+                  icon={Phone}
+                  type="tel"
+                  defaultValue={editing.phone}
+                  required
+                  maxLength={10}
+                  inputMode="numeric"
+                  dataKind="phone"
+                />
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Role</label>
                   <input
@@ -508,11 +602,7 @@ function AdminsPage() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Assigned clinic</label>
-                  <Select
-                    name="clinic"
-                    value={editAdminClinic}
-                    onValueChange={setEditAdminClinic}
-                  >
+                  <Select name="clinic" value={editAdminClinic} onValueChange={setEditAdminClinic}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -531,10 +621,7 @@ function AdminsPage() {
                   <div className="text-sm font-medium">Admin active</div>
                   <div className="text-xs text-muted-foreground">Allow this admin to log in</div>
                 </div>
-                <Switch
-                  checked={editAdminActive}
-                  onCheckedChange={setEditAdminActive}
-                />
+                <Switch checked={editAdminActive} onCheckedChange={setEditAdminActive} />
               </div>
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => setEditing(null)}>
@@ -559,7 +646,12 @@ function DetailRow({ label, value }) {
   return (
     <div className="flex items-center gap-3 text-sm">
       <div className="text-muted-foreground">{label}</div>
-      <div className="ml-auto text-right font-medium">{value}</div>
+      <div
+        className="ml-auto max-w-[260px] truncate text-right font-medium"
+        title={String(value ?? "")}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -567,6 +659,9 @@ function IconField({ label, icon: Icon, dataKind, onInput, ...rest }) {
   const handleInput = (event) => {
     if (dataKind === "name") event.currentTarget.value = lettersOnly(event.currentTarget.value);
     if (dataKind === "email") event.currentTarget.value = cleanEmail(event.currentTarget.value);
+    if (dataKind === "phone") event.currentTarget.value = digitsOnly(event.currentTarget.value);
+    if (dataKind === "password")
+      event.currentTarget.value = event.currentTarget.value.replace(/\s/g, "");
     onInput?.(event);
   };
 

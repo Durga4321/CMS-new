@@ -1,13 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
-  Building2,
-  ShieldCheck,
   Users,
-  KeySquare,
   Settings,
   BarChart3,
-  ScrollText,
   Bell,
   Stethoscope,
   ChevronDown,
@@ -15,25 +11,35 @@ import {
   CalendarPlus,
   ReceiptText,
   UserPlus,
+  UserCog,
+  CalendarClock,
+  Pill,
+  Building2,
+  ShieldCheck,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthUser } from "@/lib/api";
+import { normalizeRole } from "@/lib/auth-routing";
 const nav = [
-  { group: "Overview", items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }] },
   {
-    group: "Management",
+    group: "Overview",
+    items: [{ to: "/admin-dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    group: "Admin Modules",
     items: [
-      { to: "/clinics", label: "Clinics", icon: Building2 },
-      { to: "/admins", label: "Admins", icon: ShieldCheck },
-      { to: "/users", label: "Users", icon: Users },
-      { to: "/roles", label: "Roles & Permissions", icon: KeySquare },
+      { to: "/doctors", label: "Manage Doctors", icon: Stethoscope },
+      { to: "/staff", label: "Manage Staff", icon: UserCog },
+      { to: "/schedule", label: "Schedule Setup", icon: CalendarClock },
+      { to: "/patients", label: "View Patients", icon: Users },
+      { to: "/appointments", label: "View Appointments", icon: CalendarPlus },
     ],
   },
   {
     group: "Insights",
     items: [
-      { to: "/reports", label: "Reports", icon: BarChart3 },
-      { to: "/logs", label: "Audit Logs", icon: ScrollText },
+      { to: "/admin-reports", label: "Reports", icon: BarChart3 },
       { to: "/notifications", label: "Notifications", icon: Bell },
     ],
   },
@@ -42,8 +48,32 @@ const nav = [
 export function Sidebar({ open, onClose }) {
   const location = useRouterState({ select: (s) => s.location });
   const path = location.pathname;
-  const role = getAuthUser()?.role?.toLowerCase?.() ?? "admin";
+  const authUser = getAuthUser();
+  const role = normalizeRole(authUser?.role, authUser?.email ?? authUser?.Email) || "admin";
+  const isSuperAdmin = role === "superadmin";
   const isReceptionist = role === "receptionist";
+  const isDoctor = role === "doctor";
+  const superAdminNav = [
+    { group: "Overview", items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }] },
+    {
+      group: "Platform",
+      items: [
+        { to: "/clinics", label: "Clinics", icon: Building2 },
+        { to: "/admins", label: "Admins", icon: ShieldCheck },
+        { to: "/users", label: "Users", icon: Users },
+        { to: "/roles", label: "Roles & Permissions", icon: UserCog },
+      ],
+    },
+    {
+      group: "Insights",
+      items: [
+        { to: "/reports", label: "Reports", icon: BarChart3 },
+        { to: "/logs", label: "Audit Logs", icon: ScrollText },
+        { to: "/notifications", label: "Notifications", icon: Bell },
+      ],
+    },
+    { group: "System", items: [{ to: "/settings", label: "Settings", icon: Settings }] },
+  ];
   const receptionistNav = [
     {
       group: "Front Desk",
@@ -55,7 +85,42 @@ export function Sidebar({ open, onClose }) {
       ],
     },
   ];
-  const visibleNav = isReceptionist ? receptionistNav : nav;
+  const doctorNav = [
+    {
+      group: "Doctor Console",
+      items: [
+        { to: "/doctor", label: "Dashboard", icon: LayoutDashboard },
+        { to: "/doctor/patients", label: "Patients", icon: Users },
+        { to: "/doctor/consultations", label: "Consultations", icon: ClipboardList },
+        { to: "/doctor/prescriptions", label: "Prescriptions", icon: Pill },
+      ],
+    },
+    {
+      group: "Updates",
+      items: [{ to: "/notifications", label: "Notifications", icon: Bell }],
+    },
+  ];
+  const visibleNav = isReceptionist
+    ? receptionistNav
+    : isDoctor
+      ? doctorNav
+      : isSuperAdmin
+        ? superAdminNav
+        : nav;
+  const consoleLabel = isReceptionist
+    ? "Reception Console"
+    : isDoctor
+      ? "Doctor Console"
+      : isSuperAdmin
+        ? "Super Admin Console"
+        : "Admin Console";
+  const helpCopy = isReceptionist
+    ? "Book appointments, register patients, and manage billing."
+    : isDoctor
+      ? "View patients, write prescriptions, and complete consultations."
+      : isSuperAdmin
+        ? "Manage clinics, admins, users, permissions and audit logs."
+        : "Manage doctors, schedules, patients, appointments and reports.";
   return (
     <>
       {open && (
@@ -78,9 +143,7 @@ export function Sidebar({ open, onClose }) {
             <div className="text-sm font-semibold leading-tight text-sidebar-foreground">
               Medisuite
             </div>
-            <div className="text-[11px] text-muted-foreground">
-              {isReceptionist ? "Reception Console" : "Super Admin Console"}
-            </div>
+            <div className="text-[11px] text-muted-foreground">{consoleLabel}</div>
           </div>
         </div>
 
@@ -93,7 +156,9 @@ export function Sidebar({ open, onClose }) {
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const active =
-                    item.to === "/reception" ? path === item.to : path.startsWith(item.to);
+                    item.to === "/reception" || item.to === "/doctor"
+                      ? path === item.to
+                      : path.startsWith(item.to);
                   return (
                     <li key={item.to}>
                       <Link
@@ -126,9 +191,7 @@ export function Sidebar({ open, onClose }) {
               <ChevronDown className="h-4 w-4 text-primary" />
               Need help?
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Browse the admin docs or contact platform support.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{helpCopy}</p>
             <Link
               to="/help"
               onClick={onClose}

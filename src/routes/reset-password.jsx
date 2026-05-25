@@ -60,10 +60,10 @@ function ResetPasswordPage() {
   const validateForm = () => {
     const errors = {};
     if (!otp.trim()) errors.otp = "OTP is required";
-    if (!pwd.trim()) errors.newPassword = "New password is required";
+    const passwordError = validatePassword(pwd, "New password");
+    if (passwordError) errors.newPassword = passwordError;
     if (!confirm.trim()) errors.confirmPassword = "Confirm password is required";
-    if (pwd.trim() && pwd.trim().length < 6) errors.newPassword = "Password must be at least 6 characters";
-    if (pwd.trim() && confirm.trim() && pwd.trim() !== confirm.trim()) {
+    if (pwd && confirm && pwd !== confirm) {
       errors.confirmPassword = "Passwords do not match";
     }
     if (!emailValue) errors.email = "Email is required";
@@ -86,8 +86,8 @@ function ResetPasswordPage() {
       const payload = {
         email: emailValue,
         otp: otp.trim(),
-        newPassword: pwd.trim(),
-        confirmPassword: confirm.trim(),
+        newPassword: pwd,
+        confirmPassword: confirm,
       };
       console.log("Resetting password with payload:", payload);
       const response = await api.auth.resetPassword(payload);
@@ -156,7 +156,7 @@ function ResetPasswordPage() {
                   type={showPwd ? "text" : "password"}
                   value={pwd}
                   onChange={(e) => {
-                    setPwd(e.target.value);
+                    setPwd(e.target.value.replace(/\s/g, ""));
                     setFieldErrors((prev) => ({ ...prev, newPassword: "" }));
                   }}
                   placeholder="Enter new password"
@@ -181,7 +181,7 @@ function ResetPasswordPage() {
                   type={showConfirm ? "text" : "password"}
                   value={confirm}
                   onChange={(e) => {
-                    setConfirm(e.target.value);
+                    setConfirm(e.target.value.replace(/\s/g, ""));
                     setFieldErrors((prev) => ({ ...prev, confirmPassword: "" }));
                   }}
                   placeholder="Confirm new password"

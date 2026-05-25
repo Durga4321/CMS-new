@@ -1,24 +1,14 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { getAuthToken, getAuthUser } from "@/lib/api";
-
-function normalizeRole(role) {
-  const normalized = String(role ?? "").toLowerCase().trim();
-  if (normalized.includes("reception")) return "receptionist";
-  if (normalized.includes("doctor")) return "doctor";
-  if (normalized.includes("patient")) return "patient";
-  if (normalized.includes("admin")) return "admin";
-  return "";
-}
+import { getRoleHomePath, normalizeRole } from "@/lib/auth-routing";
 
 function resolveHomeRoute() {
   const token = getAuthToken();
   const user = getAuthUser();
-  const role = normalizeRole(user?.role);
+  const role = normalizeRole(user?.role, user?.email ?? user?.Email);
   if (token || user) {
-    if (role === "receptionist") return "/reception";
-    if (role === "admin") return "/dashboard";
-    return "/login";
+    return getRoleHomePath(role) || "/login";
   }
   return "/login";
 }

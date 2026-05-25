@@ -10,6 +10,7 @@ import {
   cleanEmail,
   digitsOnly,
   lettersOnly,
+  MAX_NAME_LENGTH,
   validateEmail,
   validateName,
   validatePhone,
@@ -53,7 +54,7 @@ function ProfilePage() {
   const updateField = (field) => (event) => {
     let value = event.target.value;
     if (field === "name") {
-      value = lettersOnly(value);
+      value = lettersOnly(value).slice(0, MAX_NAME_LENGTH);
     }
     if (field === "phone") {
       value = digitsOnly(value);
@@ -103,7 +104,7 @@ function ProfilePage() {
             </AvatarFallback>
           </Avatar>
           <div className="mt-4">
-            <h2 className="text-lg font-semibold">{form.name || "Account user"}</h2>
+            <h2 className="truncate text-lg font-semibold" title={form.name || "Account user"}>{form.name || "Account user"}</h2>
             <p className="text-sm text-muted-foreground">{formatRole(form.role)}</p>
           </div>
           <div className="mt-6 space-y-3 text-sm">
@@ -124,7 +125,7 @@ function ProfilePage() {
 
             <div className="space-y-5">
               <FormField label="Full name">
-                <input className={inputCls} value={form.name} onChange={updateField("name")} />
+                <input className={inputCls} value={form.name} maxLength={MAX_NAME_LENGTH} onChange={updateField("name")} />
               </FormField>
               <FormField label="Email address">
                 <input

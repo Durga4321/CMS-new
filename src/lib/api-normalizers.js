@@ -68,6 +68,7 @@ export function normalizeAdmin(item, index = 0) {
       "Unnamed admin",
     ),
     email: text(item.email),
+    phone: text(item.phone ?? item.mobile ?? item.contact ?? item.phoneNumber ?? item.mobileNumber),
     clinic: text(item.clinicName ?? item.clinic?.name ?? item.clinic),
     role: text(item.roleName ?? item.role?.name ?? item.role, "Admin"),
     status: normalizeStatus(item.status ?? item.isActive),

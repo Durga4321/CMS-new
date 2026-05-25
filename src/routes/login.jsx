@@ -30,6 +30,9 @@ import {
   readToken,
   readUser,
   markUserActive,
+  recordLoginHistory,
+  recordSystemLog,
+  rememberUserDirectoryEntry,
   setAuthToken,
   setAuthUser,
   hasAuthSession,
@@ -45,6 +48,7 @@ import {
   validatePassword,
   validatePhone,
 } from "@/lib/form-validation";
+import { getRoleHomePath, normalizeRole, SUPER_ADMIN_EMAIL } from "@/lib/auth-routing";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -77,16 +81,7 @@ const roles = [
   { label: "Patient", value: "patient" },
 ];
 
-const SUPER_ADMIN_EMAIL = "superadmin@gmail.com";
 const SUPER_ADMIN_FALLBACK_NAME = "DP";
-
-function getRoleHomePath(role) {
-  const normalizedRole = normalizeRole(role);
-  if (normalizedRole === "receptionist") return "/reception";
-  if (normalizedRole === "admin") return "/dashboard";
-  if (normalizedRole === "superadmin") return "/dashboard";
-  return "";
-}
 
 function LoginPage() {
   const nav = useNavigate();
@@ -136,8 +131,7 @@ function LoginPage() {
     if (normalizedEmail !== email) setEmail(normalizedEmail);
     const emailError = validateEmail(normalizedEmail);
     if (emailError) errs.email = emailError;
-    const passwordError = validatePassword(password);
-    if (passwordError) errs.password = passwordError;
+    if (!password) errs.password = "Password is required";
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
@@ -156,7 +150,7 @@ function LoginPage() {
         }
         const authUser = {
           email: normalizedEmail,
-          role: normalizeRole(localUser.role) || "admin",
+          role: normalizeRole(localUser.role, normalizedEmail) || "admin",
           name: localUser.name || localUser.username || normalizedEmail.split("@")[0],
         };
         const homePath = getRoleHomePath(authUser.role);
@@ -168,6 +162,7 @@ function LoginPage() {
         setAuthToken(`static-${Date.now()}`, rememberMe);
         setAuthUser(authUser, rememberMe);
         markUserActive(authUser);
+        recordLoginHistory(authUser);
         toast.success("Welcome back!");
         nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
         return;
@@ -195,7 +190,8 @@ function LoginPage() {
       delete safeSavedUser.password;
       delete safeSavedUser.Password;
       const detectedRole =
-        readRole(response, token) || (isSuperAdminLogin ? "superadmin" : "admin");
+        normalizeRole(readRole(response, token), normalizedEmail) ||
+        (isSuperAdminLogin ? "superadmin" : "admin");
       const savedName = [
         safeSavedUser.firstName ?? safeSavedUser.first_name,
         safeSavedUser.lastName ?? safeSavedUser.last_name,
@@ -233,6 +229,15 @@ function LoginPage() {
       setAuthToken(token, rememberMe);
       setAuthUser(authUser, rememberMe);
       markUserActive(authUser);
+      recordLoginHistory(authUser, {
+        ip:
+          response?.ip ??
+          response?.ipAddress ??
+          response?.ip_address ??
+          response?.data?.ip ??
+          response?.data?.ipAddress ??
+          "",
+      });
       toast.success("Welcome back!");
       nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
     } catch (err) {
@@ -278,13 +283,22 @@ function LoginPage() {
 
     setLoading(true);
     try {
-      rememberRegisteredUser({
+      const registeredUser = {
         email: normalizedEmail,
         username: account.username,
         role: account.role.toLowerCase(),
         name: `${account.firstName} ${account.lastName}`.trim(),
         phone: normalizedPhone,
         password,
+      };
+      rememberRegisteredUser(registeredUser);
+      rememberUserDirectoryEntry(registeredUser, "registration");
+      recordSystemLog({
+        user: registeredUser.name || registeredUser.username,
+        email: registeredUser.email,
+        role: registeredUser.role,
+        action: "Registered account",
+        module: "Auth",
       });
       toast.success("Account created. Please sign in.");
       setMode("login");
@@ -474,7 +488,7 @@ function LoginPage() {
                   <PasswordField
                     value={password}
                     onChange={(value) => {
-                      setPassword(value);
+                      setPassword(value.replace(/\s/g, ""));
                       clearFieldError(setErrors, "password");
                     }}
                     showPassword={showPwd}
@@ -491,7 +505,7 @@ function LoginPage() {
                   <PasswordField
                     value={account.confirmPassword}
                     onChange={(value) => {
-                      updateAccount("confirmPassword", value);
+                      updateAccount("confirmPassword", value.replace(/\s/g, ""));
                       clearFieldError(setErrors, "confirmPassword");
                     }}
                     showPassword={showConfirmPwd}
@@ -517,7 +531,7 @@ function LoginPage() {
                 <PasswordField
                   value={password}
                   onChange={(value) => {
-                    setPassword(value);
+                    setPassword(value.replace(/\s/g, ""));
                     clearFieldError(setErrors, "password");
                   }}
                   showPassword={showPwd}
@@ -592,20 +606,6 @@ function LoginPage() {
   );
 }
 
-function normalizeRole(value) {
-  const role = String(value ?? "")
-    .toLowerCase()
-    .trim();
-  if (role.includes("superadmin") || role.includes("super admin") || role.includes("super_admin")) {
-    return "superadmin";
-  }
-  if (role.includes("reception")) return "receptionist";
-  if (role.includes("doctor")) return "doctor";
-  if (role.includes("patient")) return "patient";
-  if (role.includes("admin")) return "admin";
-  return "";
-}
-
 function getRegisteredUser(email) {
   if (typeof window === "undefined") return null;
   try {
@@ -656,6 +656,7 @@ function clearFieldError(setErrors, field) {
 function resolvePostLoginPath(redirect, role) {
   let path = String(redirect ?? "").trim();
   const homePath = getRoleHomePath(role);
+  const normalizedRole = normalizeRole(role);
 
   if (path.startsWith("http://") || path.startsWith("https://")) {
     try {
@@ -672,8 +673,19 @@ function resolvePostLoginPath(redirect, role) {
     if (homePath === "/reception" && path.startsWith("/reception")) {
       return path;
     }
-    if (homePath === "/dashboard" && !path.startsWith("/reception")) {
+    if (homePath === "/doctor" && path.startsWith("/doctor")) {
       return path;
+    }
+    if (
+      homePath === "/admin-dashboard" &&
+      !path.startsWith("/reception") &&
+      !path.startsWith("/doctor") &&
+      !path.startsWith("/reports")
+    ) {
+      return path === "/dashboard" ? homePath : path;
+    }
+    if (homePath === "/dashboard" && !path.startsWith("/reception")) {
+      return path === "/admin-dashboard" && normalizedRole === "superadmin" ? homePath : path;
     }
     return homePath;
   }

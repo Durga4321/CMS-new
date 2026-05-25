@@ -31,8 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
-import { api, getPayload, toArray } from "@/lib/api";
+import { api, getAuthUser, getPayload, toArray } from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
+import { normalizeRole } from "@/lib/auth-routing";
 import {
   normalizeActivity,
   normalizeClinicTypes,
@@ -52,15 +53,17 @@ const statRoutes = {
   Admins: "/admins",
   "Active Users": "/users",
   Users: "/users",
-  "Revenue (MTD)": "/reports",
-  Revenue: "/reports",
+  "Revenue (MTD)": "report",
+  Revenue: "report",
 };
 const periodLengths = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12 };
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function routeForStat(label) {
+function routeForStat(label, reportPath) {
+  const route = statRoutes[label];
+  if (route === "report") return reportPath;
   return (
-    statRoutes[label] ??
+    route ??
     (label.toLowerCase().includes("clinic")
       ? "/clinics"
       : label.toLowerCase().includes("admin")
@@ -68,13 +71,18 @@ function routeForStat(label) {
         : label.toLowerCase().includes("user")
           ? "/users"
           : label.toLowerCase().includes("revenue")
-            ? "/reports"
-            : "/reports")
+            ? reportPath
+            : reportPath)
   );
 }
 
 function DashboardPage() {
   const [revenuePeriod, setRevenuePeriod] = useState("1Y");
+  const authUser = getAuthUser();
+  const reportPath =
+    normalizeRole(authUser?.role, authUser?.email ?? authUser?.Email) === "superadmin"
+      ? "/reports"
+      : "/admin-reports";
   const { data, loading, error } = useApiResource(
     async () => {
       const [summary, revenue, activity, clinics] = await Promise.all([
@@ -133,7 +141,7 @@ function DashboardPage() {
         actions={
           <>
             <Button variant="outline" className="gap-1.5" asChild>
-              <Link to="/reports">
+              <Link to={reportPath}>
                 <FileDown className="h-4 w-4" />
                 Export
               </Link>
@@ -160,7 +168,7 @@ function DashboardPage() {
         {stats.map((s) => {
           const Icon = iconMap[s.icon] ?? Users;
           const Trend = s.trend === "up" ? TrendingUp : TrendingDown;
-          const target = routeForStat(s.label);
+          const target = routeForStat(s.label, reportPath);
           return (
             <Link
               key={s.label}
@@ -212,7 +220,7 @@ function DashboardPage() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <Link
-                to="/reports"
+                to={reportPath}
                 className="text-base font-semibold hover:text-primary hover:underline"
               >
                 Revenue overview

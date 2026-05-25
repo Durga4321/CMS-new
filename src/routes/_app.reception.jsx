@@ -11,9 +11,9 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { api, toArray } from "@/lib/api";
-import { normalizeAppointment, normalizeReceptionSummary } from "@/lib/api-normalizers";
+import { normalizeAppointment, normalizePatient, normalizeReceptionSummary } from "@/lib/api-normalizers";
 import { cn } from "@/lib/utils";
-import { today } from "@/lib/reception-store";
+import { today, useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception")({
   component: ReceptionDashboardPage,
@@ -21,6 +21,7 @@ export const Route = createFileRoute("/_app/reception")({
 });
 
 function ReceptionDashboardPage() {
+  const receptionStore = useReceptionStore();
   const {
     data: summary,
     loading: summaryLoading,
@@ -34,32 +35,58 @@ function ReceptionDashboardPage() {
     },
   );
   const {
-    data: todaysAppointments,
+    data: apiTodaysAppointments,
     loading: appointmentsLoading,
     error: appointmentsError,
   } = useApiResource(
-    async () => toArray(await api.receptionDashboard.appointments()).map(normalizeAppointment),
+    async () => {
+      const dashboardAppointments = toArray(await api.receptionDashboard.appointments()).map(normalizeAppointment);
+      if (dashboardAppointments.length > 0) return dashboardAppointments;
+      return toArray(await api.appointments.today()).map(normalizeAppointment);
+    },
     [],
   );
   const {
-    data: waitingPatients,
+    data: apiWaitingPatients,
     loading: queueLoading,
     error: queueError,
   } = useApiResource(
     async () => toArray(await api.receptionDashboard.queue()).map(normalizeAppointment),
     [],
   );
+  const {
+    data: apiPatients,
+    loading: patientsLoading,
+    error: patientsError,
+  } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
   const { data: quickActions } = useApiResource(
     async () => toArray(await api.receptionDashboard.quickActions()),
     [],
   );
-  const completedCount =
-    summary.completedAppointments ||
-    todaysAppointments.filter((item) => ["Consulted", "Paid"].includes(item.status)).length;
+  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
+  const todaysAppointments =
+    apiTodaysAppointments.length > 0 ? apiTodaysAppointments : receptionStore.todaysAppointments;
+  const bookedPatientIds = new Set(todaysAppointments.map((item) => item.patientId).filter(Boolean));
+  const appointmentWaitingPatients = todaysAppointments.filter((item) => item.status === "Waiting");
+  const unbookedPatients = patients
+    .filter((patient) => !bookedPatientIds.has(patient.id))
+    .map(patientToWaitingQueueItem);
+  const waitingPatients =
+    apiWaitingPatients.length > 0
+      ? apiWaitingPatients
+      : appointmentWaitingPatients.length > 0
+        ? appointmentWaitingPatients
+        : unbookedPatients;
+  const todaysAppointmentCount = Math.max(summary.todaysAppointments || 0, todaysAppointments.length);
+  const waitingPatientCount = Math.max(summary.waitingPatients || 0, waitingPatients.length);
+  const completedCount = Math.max(
+    summary.completedAppointments || 0,
+    todaysAppointments.filter((item) => ["Consulted", "Paid"].includes(item.status)).length,
+  );
   const quickActionLinks = quickActions.length
     ? quickActions.map((action) => ({
         label: action.label ?? action.title ?? action.name,
-        to: action.to ?? action.route ?? action.path ?? "/reception",
+        to: resolveQuickActionPath(action.label ?? action.title ?? action.name, action.to ?? action.route ?? action.path),
       }))
     : [
         { label: "Register Patient", to: "/reception/patients" },
@@ -94,24 +121,27 @@ function ReceptionDashboardPage() {
         <MetricCard
           icon={CalendarClock}
           label="Today's Appointments"
-          value={summary.todaysAppointments || todaysAppointments.length}
+          value={todaysAppointmentCount}
+          to="/reception/appointments"
         />
         <MetricCard
           icon={Clock3}
           label="Waiting Patients"
-          value={summary.waitingPatients || waitingPatients.length}
+          value={waitingPatientCount}
           tone="warning"
+          to="/reception/appointments"
         />
         <MetricCard
           icon={CheckCircle2}
           label="Completed Appointments"
           value={completedCount}
           tone="success"
+          to="/reception/billing"
         />
       </div>
-      {(summaryError || appointmentsError || queueError) && (
+      {(summaryError || appointmentsError || queueError || patientsError) && (
         <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {summaryError || appointmentsError || queueError}
+          {summaryError || appointmentsError || queueError || patientsError}
         </div>
       )}
 
@@ -188,12 +218,19 @@ function ReceptionDashboardPage() {
                       {item.doctor} - {item.time}
                     </div>
                   </div>
+                  {item.needsAppointment && (
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/reception/appointments" search={{ patientId: item.patientId }}>
+                        Book
+                      </Link>
+                    </Button>
+                  )}
                   <Clock3 className="h-4 w-4 text-warning-foreground" />
                 </div>
               ))}
               {waitingPatients.length === 0 && (
                 <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  {queueLoading ? "Loading queue..." : "No patients waiting."}
+                  {queueLoading || patientsLoading ? "Loading queue..." : "No patients waiting."}
                 </div>
               )}
             </div>
@@ -202,6 +239,26 @@ function ReceptionDashboardPage() {
       </div>
     </>
   );
+}
+
+function patientToWaitingQueueItem(patient) {
+  return {
+    id: `patient-${patient.id}`,
+    patientId: patient.id,
+    patient: patient.name,
+    doctor: "Appointment not booked",
+    time: "Waiting",
+    status: "Waiting",
+    needsAppointment: true,
+  };
+}
+
+function resolveQuickActionPath(label, path) {
+  const text = String(label ?? path ?? "").toLowerCase();
+  if (text.includes("appointment") || text.includes("book")) return "/reception/appointments";
+  if (text.includes("bill") || text.includes("invoice")) return "/reception/billing";
+  if (text.includes("patient") || text.includes("register") || text.includes("add")) return "/reception/patients";
+  return path || "/reception";
 }
 
 function getActionIcon(label) {
@@ -223,9 +280,9 @@ function ActionLink({ icon: Icon, label, to }) {
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone = "primary" }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-card">
+function MetricCard({ icon: Icon, label, value, tone = "primary", to }) {
+  const content = (
+    <>
       <div className="flex items-start justify-between">
         <div
           className={cn(
@@ -241,6 +298,23 @@ function MetricCard({ icon: Icon, label, value, tone = "primary" }) {
       </div>
       <div className="mt-4 text-sm text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
+    </>
+  );
+
+  if (to) {
+    return (
+      <Link
+        to={to}
+        className="rounded-xl border border-border bg-card p-5 shadow-card transition-colors hover:bg-accent"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-card">
+      {content}
     </div>
   );
 }

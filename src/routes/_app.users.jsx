@@ -6,7 +6,13 @@ import { PageHeader, StatusBadge } from "@/components/layout/PageHeader";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { api, getStoredUserActivity, toArray } from "@/lib/api";
+import {
+  api,
+  getRegisteredUsers,
+  getStoredUserActivity,
+  getStoredUserDirectory,
+  toArray,
+} from "@/lib/api";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { normalizeUser } from "@/lib/api-normalizers";
 import {
@@ -18,7 +24,9 @@ import {
   validateEmail,
   validateName,
   validatePhone,
+  validateUniquePhone,
 } from "@/lib/form-validation";
+import { exportCsv } from "@/lib/export-utils";
 import { toast } from "sonner";
 export const Route = createFileRoute("/_app/users")({
   component: UsersPage,
@@ -38,7 +46,7 @@ function UsersPage() {
     loading,
     error,
     reload,
-  } = useApiResource(async () => toArray(await api.users.list()).map(normalizeUser), [], []);
+  } = useApiResource(loadUsers, [], []);
   const visibleUsers = users.map((user) => {
     const storedActivity = getStoredUserActivity(user.email);
     return storedActivity && user.lastActive === "Never"
@@ -46,7 +54,15 @@ function UsersPage() {
       : user;
   });
   const availableUserRoles = Array.from(
-    new Set(visibleUsers.map((u) => String(u.role ?? "").trim().toLowerCase()).filter(Boolean)),
+    new Set(
+      visibleUsers
+        .map((u) =>
+          String(u.role ?? "")
+            .trim()
+            .toLowerCase(),
+        )
+        .filter(Boolean),
+    ),
   );
   const availableClinics = Array.from(
     new Set(visibleUsers.map((u) => String(u.clinic ?? "").trim()).filter(Boolean)),
@@ -103,6 +119,7 @@ function UsersPage() {
       validateName(nextUser.name, "User name"),
       validateEmail(nextUser.email),
       validatePhone(nextUser.phone),
+      validateUniquePhone(nextUser.phone, users, "Phone number", selected.id),
       nextUser.clinic ? "" : "Clinic is required",
       nextUser.role ? "" : "Role is required",
     ]);
@@ -122,13 +139,28 @@ function UsersPage() {
       reload();
     }
   };
+  const exportUsers = () => {
+    exportCsv(
+      "users.csv",
+      ["Name", "Email", "Role", "Clinic", "Phone", "Last Active", "Status"],
+      filtered.map((user) => [
+        user.name,
+        user.email,
+        user.role,
+        user.clinic,
+        user.phone,
+        user.lastActive,
+        user.status,
+      ]),
+    );
+  };
   return (
     <>
       <PageHeader
         title="User Management"
         description="View and manage users across all your clinics."
         actions={
-          <Button variant="outline" className="gap-1.5">
+          <Button variant="outline" className="gap-1.5" onClick={exportUsers}>
             <FileDown className="h-4 w-4" />
             Export CSV
           </Button>
@@ -259,15 +291,37 @@ function UsersPage() {
                             .join("")}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <div className="font-medium">{u.name}</div>
-                        <div className="text-xs text-muted-foreground">{u.email}</div>
+                      <div className="min-w-0">
+                        <div className="max-w-[220px] truncate font-medium" title={u.name}>
+                          {u.name}
+                        </div>
+                        <div
+                          className="max-w-[240px] truncate text-xs text-muted-foreground"
+                          title={u.email}
+                        >
+                          {u.email}
+                        </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{u.role}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{u.clinic}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{u.lastActive}</td>
+                  <td
+                    className="max-w-[160px] truncate px-5 py-3.5 text-muted-foreground"
+                    title={u.role}
+                  >
+                    {u.role}
+                  </td>
+                  <td
+                    className="max-w-[220px] truncate px-5 py-3.5 text-muted-foreground"
+                    title={u.clinic}
+                  >
+                    {u.clinic}
+                  </td>
+                  <td
+                    className="max-w-[180px] truncate px-5 py-3.5 text-muted-foreground"
+                    title={u.lastActive}
+                  >
+                    {u.lastActive}
+                  </td>
                   <td className="px-5 py-3.5">
                     <StatusBadge status={u.status} />
                   </td>
@@ -315,8 +369,13 @@ function UsersPage() {
                         .join("")}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <div className="text-lg font-semibold">{selected.name}</div>
+                  <div className="min-w-0">
+                    <div
+                      className="max-w-[260px] truncate text-lg font-semibold"
+                      title={selected.name}
+                    >
+                      {selected.name}
+                    </div>
                     <div className="text-sm text-muted-foreground">{selected.role}</div>
                     <div className="mt-1.5">
                       <StatusBadge status={selected.status} />
@@ -331,6 +390,7 @@ function UsersPage() {
                       label="Name"
                       defaultValue={selected.name}
                       dataKind="letters"
+                      maxLength={80}
                     />
                     <EditField
                       name="email"
@@ -398,7 +458,16 @@ function UsersPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setEditing(true)}>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={selected.status === "inactive"}
+                    onClick={() => {
+                      if (selected.status === "inactive")
+                        return toast.error("Inactive users cannot be edited");
+                      setEditing(true);
+                    }}
+                  >
                     Edit
                   </Button>
                   <Button
@@ -418,6 +487,50 @@ function UsersPage() {
     </>
   );
 }
+
+async function loadUsers() {
+  const [usersResponse, adminsResponse, doctorsResponse, staffResponse] = await Promise.all([
+    readOptional(api.users.list),
+    readOptional(api.admins.list),
+    readOptional(api.doctors.list),
+    readOptional(api.staff.list),
+  ]);
+  return mergeUsers([
+    ...toArray(usersResponse).map((user, index) => normalizeUser(user, index)),
+    ...toArray(adminsResponse).map((admin, index) =>
+      normalizeUser({ ...admin, role: admin.role ?? admin.roleName ?? "Admin" }, index),
+    ),
+    ...toArray(doctorsResponse).map((doctor, index) =>
+      normalizeUser({ ...doctor, role: doctor.role ?? "Doctor" }, index),
+    ),
+    ...toArray(staffResponse).map((member, index) =>
+      normalizeUser({ ...member, role: member.role ?? member.roleName ?? "Receptionist" }, index),
+    ),
+    ...getRegisteredUsers().map((user, index) => normalizeUser(user, index)),
+    ...getStoredUserDirectory().map((user, index) => normalizeUser(user, index)),
+  ]);
+}
+
+async function readOptional(loader) {
+  try {
+    return await loader();
+  } catch {
+    return [];
+  }
+}
+
+function mergeUsers(users) {
+  const byKey = new Map();
+  users.forEach((user) => {
+    const key = String(user.email || user.id || "")
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    byKey.set(key, { ...(byKey.get(key) ?? {}), ...user });
+  });
+  return [...byKey.values()];
+}
+
 function EditField({ label, dataKind, onInput, ...props }) {
   const handleInput = (event) => {
     if (dataKind === "letters") event.currentTarget.value = lettersOnly(event.currentTarget.value);
@@ -445,7 +558,9 @@ function Row({ icon: Icon, label, value }) {
     <div className="flex items-center gap-3 text-sm">
       <Icon className="h-4 w-4 text-muted-foreground" />
       <div className="text-muted-foreground">{label}</div>
-      <div className="ml-auto font-medium">{value}</div>
+      <div className="ml-auto max-w-[220px] truncate font-medium" title={String(value ?? "")}>
+        {value}
+      </div>
     </div>
   );
 }
