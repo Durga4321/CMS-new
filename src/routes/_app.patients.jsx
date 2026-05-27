@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { api, toArray } from "@/lib/api";
 import { normalizePatient } from "@/lib/api-normalizers";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/patients")({
   component: PatientsPage,
@@ -14,15 +13,11 @@ export const Route = createFileRoute("/_app/patients")({
 });
 
 function PatientsPage() {
-  const receptionStore = useReceptionStore();
   const { data: apiPatients, loading, error } = useApiResource(
     async () => toArray(await api.patients.list()).map(normalizeAdminPatient),
     [],
   );
-  const patients =
-    apiPatients.length > 0
-      ? apiPatients
-      : receptionStore.patients.map(normalizeAdminPatient);
+  const patients = apiPatients;
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
   const filtered = patients.filter(

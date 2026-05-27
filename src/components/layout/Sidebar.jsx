@@ -29,11 +29,11 @@ const nav = [
   {
     group: "Admin Modules",
     items: [
-      { to: "/doctors", label: "Manage Doctors", icon: Stethoscope },
-      { to: "/staff", label: "Manage Staff", icon: UserCog },
+      { to: "/doctors", label: "Doctors", icon: Stethoscope },
+      { to: "/staff", label: "Staff", icon: UserCog },
       { to: "/schedule", label: "Schedule Setup", icon: CalendarClock },
-      { to: "/patients", label: "View Patients", icon: Users },
-      { to: "/appointments", label: "View Appointments", icon: CalendarPlus },
+      { to: "/patients", label: "Patients", icon: Users },
+      { to: "/appointments", label: "Appointments", icon: CalendarPlus },
     ],
   },
   {
@@ -120,7 +120,7 @@ export function Sidebar({ open, onClose }) {
       ? "View patients, write prescriptions, and complete consultations."
       : isSuperAdmin
         ? "Manage clinics, admins, users, permissions and audit logs."
-        : "Manage doctors, schedules, patients, appointments and reports.";
+        : "Doctors, schedules, patients, appointments and reports.";
   return (
     <>
       {open && (

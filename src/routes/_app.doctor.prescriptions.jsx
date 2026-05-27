@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { api, toArray } from "@/lib/api";
 import { normalizePatient } from "@/lib/api-normalizers";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/doctor/prescriptions")({
   component: DoctorPrescriptionsPage,
@@ -14,15 +13,11 @@ export const Route = createFileRoute("/_app/doctor/prescriptions")({
 });
 
 function DoctorPrescriptionsPage() {
-  const receptionStore = useReceptionStore();
   const { data: apiPrescriptions, error } = useApiResource(
     async () => toArray(await api.patients.list()).map(patientToPrescription).filter(Boolean),
     [],
   );
-  const sourcePrescriptions =
-    apiPrescriptions.length > 0
-      ? apiPrescriptions
-      : receptionStore.patients.map(patientToPrescription).filter(Boolean);
+  const sourcePrescriptions = apiPrescriptions;
   const [localPrescriptions, setLocalPrescriptions] = useState([]);
   const prescriptions = [...localPrescriptions, ...sourcePrescriptions];
   const [query, setQuery] = useState("");

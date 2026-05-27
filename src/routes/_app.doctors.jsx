@@ -55,13 +55,13 @@ function DoctorsPage() {
     const form = new FormData(event.currentTarget);
     const payload = {
       name: String(form.get("name") ?? "").trim(),
+      specialization: String(form.get("specialization") ?? "").trim(),
+      experience: Number(form.get("experience") ?? 0),
+      fees: Number(form.get("fee") ?? 0),
       email: String(form.get("email") ?? "").trim(),
       phone: String(form.get("phone") ?? "").trim(),
-      specialization: String(form.get("specialization") ?? "").trim(),
-      experience: String(form.get("experience") ?? "").trim(),
-      qualification: String(form.get("qualification") ?? "").trim(),
-      fee: String(form.get("fee") ?? "").trim(),
-      status: editingDoctor?.status ?? "active",
+      password: String(form.get("password") ?? "").trim(),
+      isActive: String(form.get("status") ?? "active").toLowerCase() === "active",
     };
     try {
       const response = editingDoctor
@@ -281,7 +281,10 @@ function normalizeDoctor(item, index = 0) {
     specialization: text(item.specialization ?? item.speciality ?? item.department, ""),
     experience: text(item.experience ?? item.yearsOfExperience, ""),
     qualification: text(item.qualification ?? item.degree, ""),
-    fee: text(item.fee ?? item.consultationFee ?? item.consultation_fee, ""),
+    fee: text(
+      item.fee ?? item.fees ?? item.consultationFee ?? item.consultation_fee,
+      "",
+    ),
     status: normalizeStatus(item.status ?? item.isActive),
   };
 }

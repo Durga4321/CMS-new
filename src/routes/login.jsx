@@ -139,42 +139,43 @@ function LoginPage() {
     setErrors({});
     try {
       const localUser = isSuperAdminLogin ? null : getRegisteredUser(normalizedEmail);
-      if (localUser) {
-        if (localUser.password && localUser.password !== password) {
-          setErrors({ password: "Incorrect password. Please try again." });
-          toast.error("Incorrect password. Please try again.");
-          return;
-        }
-        if (!localUser.password) {
-          rememberRegisteredUser({ ...localUser, email: normalizedEmail, password });
-        }
-        const authUser = {
-          email: normalizedEmail,
-          role: normalizeRole(localUser.role, normalizedEmail) || "admin",
-          name: localUser.name || localUser.username || normalizedEmail.split("@")[0],
-        };
-        const homePath = getRoleHomePath(authUser.role);
-        if (!homePath) {
-          setErrors({ form: "No dashboard available for this role." });
-          toast.error("No dashboard available for this role.");
-          return;
-        }
-        setAuthToken(`static-${Date.now()}`, rememberMe);
-        setAuthUser(authUser, rememberMe);
-        markUserActive(authUser);
-        recordLoginHistory(authUser);
-        toast.success("Welcome back!");
-        nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
-        return;
-      }
-
       let response;
       try {
         response = isSuperAdminLogin
           ? await api.auth.superAdminLogin({ email: normalizedEmail, password })
           : await api.auth.login({ email: normalizedEmail, password });
       } catch (err) {
-        if (!isMissingAuthEndpoint(err)) throw err;
+        const canUseLocalFallback =
+          localUser &&
+          (isMissingAuthEndpoint(err) || err?.status === 401 || err?.status === 403);
+        if (canUseLocalFallback) {
+          if (localUser.password && localUser.password !== password) {
+            setErrors({ password: "Incorrect password. Please try again." });
+            toast.error("Incorrect password. Please try again.");
+            return;
+          }
+          if (!localUser.password) {
+            rememberRegisteredUser({ ...localUser, email: normalizedEmail, password });
+          }
+          const authUser = {
+            email: normalizedEmail,
+            role: normalizeRole(localUser.role, normalizedEmail) || "admin",
+            name: localUser.name || localUser.username || normalizedEmail.split("@")[0],
+          };
+          const homePath = getRoleHomePath(authUser.role);
+          if (!homePath) {
+            setErrors({ form: "No dashboard available for this role." });
+            toast.error("No dashboard available for this role.");
+            return;
+          }
+          setAuthToken(`static-${Date.now()}`, rememberMe);
+          setAuthUser(authUser, rememberMe);
+          markUserActive(authUser);
+          recordLoginHistory(authUser);
+          toast.success("Welcome back!");
+          nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
+          return;
+        }
         if (isSuperAdminLogin) {
           response = await api.auth.login({ email: normalizedEmail, password });
         } else {
@@ -667,25 +668,8 @@ function resolvePostLoginPath(redirect, role) {
   }
 
   if (path.startsWith("/") && !path.startsWith("/login")) {
-    if (path.startsWith("/profile") || path.startsWith("/notifications")) {
+    if (path.startsWith("/profile") || path.startsWith("/notifications") || path.startsWith("/help")) {
       return path;
-    }
-    if (homePath === "/reception" && path.startsWith("/reception")) {
-      return path;
-    }
-    if (homePath === "/doctor" && path.startsWith("/doctor")) {
-      return path;
-    }
-    if (
-      homePath === "/admin-dashboard" &&
-      !path.startsWith("/reception") &&
-      !path.startsWith("/doctor") &&
-      !path.startsWith("/reports")
-    ) {
-      return path === "/dashboard" ? homePath : path;
-    }
-    if (homePath === "/dashboard" && !path.startsWith("/reception")) {
-      return path === "/admin-dashboard" && normalizedRole === "superadmin" ? homePath : path;
     }
     return homePath;
   }

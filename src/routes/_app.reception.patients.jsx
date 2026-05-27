@@ -38,7 +38,7 @@ function ReceptionPatientsPage() {
     error: patientsError,
     reload,
   } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
-  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
+  const patients = apiPatients;
   const [form, setForm] = useState({ ...emptyPatient, id: nextPatientId(patients?.length ?? 0) });
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -694,21 +694,24 @@ function toPatientPayload(patient) {
       : [];
 
   return {
-    patientId: patient.id,
-    fullName: patient.name,
+    name: patient.name,
+    phone: patient.phone,
     age: Number(patient.age),
     gender: patient.gender,
-    dateOfBirth: toIsoDate(patient.dob),
-    patientType: patient.type,
-    mobileNumber: patient.phone,
+    email: patient.email,
     address: [patient.street, patient.city, patient.state, patient.pinCode]
       .filter(Boolean)
       .join(", "),
+    bloodGroup: patient.bloodGroup,
+    dateOfBirth: toIsoDate(patient.dob),
+    emergencyContactName: patient.emergencyName,
+    emergencyContactPhone: patient.emergencyPhone,
+    patientType: patient.type,
+    mobileNumber: patient.phone,
     streetAddress: patient.street,
     city: patient.city,
     state: patient.state,
     pinCode: patient.pinCode,
-    emergencyContactName: patient.emergencyName,
     emergencyContactMobileNumber: patient.emergencyPhone,
     allergies: [patient.drugAllergies, patient.foodAllergies, patient.environmentalAllergies]
       .filter(Boolean)

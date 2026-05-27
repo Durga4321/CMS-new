@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { api, getPayload, toArray } from "@/lib/api";
-import { normalizeAppointment, normalizePatient } from "@/lib/api-normalizers";
+import { normalizeAppointment, normalizeDoctor, normalizePatient } from "@/lib/api-normalizers";
 import { validateTodayOrFutureDate } from "@/lib/form-validation";
 import { cn } from "@/lib/utils";
-import { doctors, nextAppointmentId, slots, today, useReceptionStore } from "@/lib/reception-store";
+import { doctors, nextAppointmentId, today, useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception/appointments")({
   component: AppointmentBookingPage,
@@ -28,6 +28,11 @@ function AppointmentBookingPage() {
     error: patientsError,
   } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
   const {
+    data: apiDoctors,
+    loading: doctorsLoading,
+    error: doctorsError,
+  } = useApiResource(async () => toArray(await api.doctors.list()).map(normalizeDoctor), []);
+  const {
     data: apiTodaysAppointments,
     loading: appointmentsLoading,
     error: appointmentsError,
@@ -36,21 +41,52 @@ function AppointmentBookingPage() {
     async () => toArray(await api.appointments.today()).map(normalizeAppointment),
     [],
   );
-  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
-  const todaysAppointments =
-    apiTodaysAppointments.length > 0 ? apiTodaysAppointments : receptionStore.todaysAppointments;
+  const patients = apiPatients;
+  const todaysAppointments = apiTodaysAppointments.filter((item) => String(item.date).slice(0, 10) === today());
+
   const [booking, setBooking] = useState({
     patientId: search.patientId || "",
-    doctor: doctors[0],
+    doctorId: "",
+    doctorName: "",
     date: today(),
+    chiefComplaints: "",
+    bloodPressure: "",
+    sugarLevel: "",
+    temperature: "",
+    weight: "",
+    pulseRate: "",
+    respiratoryRate: "",
   });
+
+  const doctorOptions = apiDoctors.length
+    ? apiDoctors.map((doctor) => ({ label: doctor.name, value: String(doctor.id) }))
+    : doctors.map((doctor, index) => ({ label: doctor, value: String(index + 1) }));
+  const selectedDoctor = doctorOptions.find((option) => option.value === booking.doctorId);
+
+  useEffect(() => {
+    if (!booking.doctorId && doctorOptions[0]?.value) {
+      setBooking((current) => ({
+        ...current,
+        doctorId: doctorOptions[0].value,
+        doctorName: doctorOptions[0].label,
+      }));
+    }
+  }, [booking.doctorId, doctorOptions]);
   const {
     data: slotRecords,
     loading: slotsLoading,
     error: slotsError,
     reload: reloadSlots,
   } = useApiResource(
-    async () => toArray(await api.appointments.slots(booking)).map(normalizeSlot),
+    async () => {
+      if (booking.doctorId === "") return [];
+      return toArray(
+        await api.appointments.slots({
+          doctorId: Number(booking.doctorId),
+          date: new Date(booking.date).toISOString(),
+        }),
+      ).map(normalizeSlot);
+    },
     [],
   );
   const [lockedSlot, setLockedSlot] = useState("");
@@ -66,6 +102,16 @@ function AppointmentBookingPage() {
   }, [search.patientId]);
 
   useEffect(() => {
+    if (!booking.doctorId && doctorOptions[0]?.value) {
+      setBooking((current) => ({
+        ...current,
+        doctorId: doctorOptions[0].value,
+        doctorName: doctorOptions[0].label,
+      }));
+    }
+  }, [booking.doctorId, doctorOptions]);
+
+  useEffect(() => {
     if (!booking.patientId && patients[0]?.id) {
       setBooking((current) => ({ ...current, patientId: patients[0].id }));
     }
@@ -73,7 +119,7 @@ function AppointmentBookingPage() {
 
   useEffect(() => {
     reloadSlots();
-  }, [booking.date, booking.doctor, reloadSlots]);
+  }, [booking.date, booking.doctorId, reloadSlots]);
 
   useEffect(() => {
     if (!lockedSlot || !lockedAt) return;
@@ -94,27 +140,31 @@ function AppointmentBookingPage() {
   }, [lockedAt, lockedSlot]);
 
   const slotState = useMemo(() => {
-    const availableSlots = slotRecords.length ? slotRecords : slots.map((slot) => ({ time: slot }));
-    return availableSlots.reduce((acc, slotRecord) => {
+    return slotRecords.reduce((acc, slotRecord) => {
       const slot = slotRecord.time;
       const booked = todaysAppointments.some(
         (item) =>
-          item.doctor === booking.doctor && item.date === booking.date && item.time === slot,
+          item.doctor === (selectedDoctor?.label ?? booking.doctorName) &&
+          item.date === booking.date &&
+          item.time === slot,
       );
-      const locked =
-        lockedSlot === slot &&
-        lockedBooking?.patientId === booking.patientId &&
-        lockedBooking?.doctor === booking.doctor &&
-        lockedBooking?.date === booking.date;
-      acc[slot] = booked ? "Booked" : locked ? "Locked" : slotRecord.status || "Available";
+      const selected = lockedSlot === slot;
+      acc[slot] = booked ? "Booked" : selected ? "Selected" : slotRecord.status || "Available";
       return acc;
     }, {});
-  }, [booking, lockedBooking, lockedSlot, slotRecords, todaysAppointments]);
+  }, [booking, lockedSlot, selectedDoctor, slotRecords, todaysAppointments]);
 
-  const slotOptions = Object.keys(slotState);
+  const slotOptions = slotRecords;
 
   const updateBooking = (field, value) => {
-    setBooking((current) => ({ ...current, [field]: value }));
+    setBooking((current) => ({
+      ...current,
+      [field]: value,
+      doctorName:
+        field === "doctorId"
+          ? doctorOptions.find((option) => option.value === value)?.label ?? current.doctorName
+          : current.doctorName,
+    }));
     setLockedSlot("");
     setLockedAppointmentId("");
     setLockedAt(null);
@@ -122,48 +172,26 @@ function AppointmentBookingPage() {
     setLockRemaining(0);
   };
 
-  const lockSlot = async (slot) => {
+  const selectSlot = async (slot) => {
     const dateError = validateTodayOrFutureDate(booking.date, "Appointment date");
     if (dateError) {
       setMessage(dateError);
       return;
     }
     if (!booking.patientId) {
-      setMessage("Select a patient before locking a slot.");
+      setMessage("Select a patient before selecting a slot.");
       return;
     }
     if (slotState[slot] === "Booked") {
       setMessage("This slot is already booked.");
       return;
     }
-    setBusy(true);
-    try {
-      let appointmentId = nextAppointmentId(todaysAppointments.length);
-      try {
-        const response = await api.appointments.lockSlot({
-          patientId: booking.patientId,
-          doctor: booking.doctor,
-          date: booking.date,
-          time: slot,
-          slot,
-        });
-        appointmentId = readEntityId(response);
-        reloadSlots();
-      } catch (err) {
-        if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
-      }
-      setLockedSlot(slot);
-      setLockedAppointmentId(appointmentId);
-      setLockedAt(Date.now());
-      setLockedBooking({ ...booking });
-      setLockRemaining(SLOT_LOCK_DURATION_MS);
-      setMessage(`${slot} is locked temporarily. Confirm within 5 minutes.`);
-    } catch (err) {
-      setMessage(err?.message ?? "Unable to lock slot");
-      toast.error(err?.message ?? "Unable to lock slot");
-    } finally {
-      setBusy(false);
-    }
+    setLockedSlot(slot);
+    setLockedAppointmentId("");
+    setLockedAt(Date.now());
+    setLockedBooking({ ...booking });
+    setLockRemaining(0);
+    setMessage(`Selected slot ${slot}. Confirm booking to save it.`);
   };
 
   const confirmBooking = async () => {
@@ -174,38 +202,65 @@ function AppointmentBookingPage() {
     const patient = patients.find((item) => item.id === booking.patientId);
     if (!patient)
       return setMessage("Selected patient was not found. Please register the patient first.");
+    const providerName = selectedDoctor?.label ?? booking.doctorName;
     const doubleBooked = todaysAppointments.some(
       (item) =>
-        item.doctor === booking.doctor && item.date === booking.date && item.time === lockedSlot,
+        item.doctor === providerName && item.date === booking.date && item.time === lockedSlot,
     );
     if (doubleBooked) {
       setLockedSlot("");
       setLockedAt(null);
       return setMessage("Double booking prevented. Please choose another slot.");
     }
-    const appointmentPayload = {
-      patientId: patient.id,
-      patientName: patient.name,
-      doctor: booking.doctor,
-      date: booking.date,
-      time: lockedSlot,
-      slot: lockedSlot,
-      status: "Waiting",
+    const normalizeTimeString = (value) => {
+      if (!value) return "";
+      if (/^\d{1,2}:\d{2}$/.test(value)) return `${value}:00`;
+      return value;
     };
+    const appointmentPayload = {
+      patientId: Number(patient.id),
+      doctorId: Number(booking.doctorId),
+      date: booking.date,
+      startTime: normalizeTimeString(lockedSlot),
+      chiefComplaints: booking.chiefComplaints,
+      bloodPressure: booking.bloodPressure,
+      sugarLevel: booking.sugarLevel,
+      temperature: booking.temperature,
+      weight: booking.weight,
+      pulseRate: booking.pulseRate,
+      respiratoryRate: booking.respiratoryRate,
+    };
+    if (!appointmentPayload.patientId || Number.isNaN(appointmentPayload.patientId)) {
+      return setMessage("Invalid patient selected. Please choose a valid patient.");
+    }
+    if (!appointmentPayload.doctorId || Number.isNaN(appointmentPayload.doctorId)) {
+      return setMessage("Invalid doctor selected. Please choose a valid doctor.");
+    }
+    if (!appointmentPayload.date) {
+      return setMessage("Select a valid appointment date.");
+    }
+    if (!appointmentPayload.startTime) {
+      return setMessage("Select an available appointment slot.");
+    }
     setBusy(true);
     try {
       let appointment = normalizeAppointment({
-          ...appointmentPayload,
-          id: lockedAppointmentId || nextAppointmentId(todaysAppointments.length),
-          patient: patient.name,
+        ...appointmentPayload,
+        id: lockedAppointmentId || nextAppointmentId(todaysAppointments.length),
+        patient: patient.name,
+        doctor: selectedDoctor?.label ?? booking.doctorName,
+        time: lockedSlot,
+        slot: lockedSlot,
       });
       try {
-        const response = lockedAppointmentId
-          ? await api.appointments.confirm(lockedAppointmentId, appointmentPayload)
-          : await api.appointments.create(appointmentPayload);
+        const response = await api.appointments.create(appointmentPayload);
         appointment = normalizeAppointment(getPayload(response) ?? appointment);
         await reloadAppointments();
       } catch (err) {
+        console.error("Appointment create failed", appointmentPayload, err, err?.data);
+        const serverMessage = err?.data?.message || err?.data || err?.message;
+        setMessage(`Booking failed: ${serverMessage}`);
+        toast.error(serverMessage ?? "Unable to confirm appointment");
         if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
       }
       receptionStore.setReceptionState((current) => ({
@@ -234,8 +289,7 @@ function AppointmentBookingPage() {
     setBusy(true);
     try {
       try {
-        if (status === "Consulted") await api.appointments.complete(id);
-        if (status === "No-show") await api.appointments.noShow(id);
+        await api.appointments.setStatus(id, status);
         reloadAppointments();
       } catch (err) {
         if (apiTodaysAppointments.length > 0 && !appointmentsError) throw err;
@@ -282,9 +336,9 @@ function AppointmentBookingPage() {
           {message}
         </div>
       )}
-      {(patientsError || appointmentsError || slotsError) && (
+      {(patientsError || doctorsError || appointmentsError || slotsError) && (
         <div className="mb-5 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {patientsError || appointmentsError || slotsError}
+          {patientsError || doctorsError || appointmentsError || slotsError}
         </div>
       )}
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
@@ -302,15 +356,52 @@ function AppointmentBookingPage() {
             />
             <SelectField
               label="Doctor"
-              value={booking.doctor}
-              onChange={(value) => updateBooking("doctor", value)}
-              options={doctors.map((doctor) => ({ label: doctor, value: doctor }))}
+              value={booking.doctorId}
+              onChange={(value) => updateBooking("doctorId", value)}
+              options={doctorOptions}
             />
             <Field
               label="Date"
               type="date"
               value={booking.date}
               onChange={(value) => updateBooking("date", value)}
+            />
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <Field
+              label="Chief Complaints"
+              value={booking.chiefComplaints}
+              onChange={(value) => updateBooking("chiefComplaints", value)}
+            />
+            <Field
+              label="Blood Pressure"
+              value={booking.bloodPressure}
+              onChange={(value) => updateBooking("bloodPressure", value)}
+            />
+            <Field
+              label="Sugar Level"
+              value={booking.sugarLevel}
+              onChange={(value) => updateBooking("sugarLevel", value)}
+            />
+            <Field
+              label="Temperature"
+              value={booking.temperature}
+              onChange={(value) => updateBooking("temperature", value)}
+            />
+            <Field
+              label="Weight"
+              value={booking.weight}
+              onChange={(value) => updateBooking("weight", value)}
+            />
+            <Field
+              label="Pulse Rate"
+              value={booking.pulseRate}
+              onChange={(value) => updateBooking("pulseRate", value)}
+            />
+            <Field
+              label="Respiratory Rate"
+              value={booking.respiratoryRate}
+              onChange={(value) => updateBooking("respiratoryRate", value)}
             />
           </div>
           <div className="mt-5">
@@ -329,24 +420,27 @@ function AppointmentBookingPage() {
               </div>
             )}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {slotOptions.map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  disabled={busy || slotState[slot] === "Booked"}
-                  onClick={() => lockSlot(slot)}
-                  className={cn(
-                    "h-11 rounded-lg border text-sm font-medium transition-colors",
-                    slotState[slot] === "Available" &&
-                      "border-success/25 bg-success/10 text-success hover:bg-success/15",
-                    slotState[slot] === "Locked" &&
-                      "border-warning/30 bg-warning/20 text-warning-foreground",
-                    slotState[slot] === "Booked" && "border-border bg-muted text-muted-foreground",
-                  )}
-                >
-                  {slot} - {slotState[slot].toUpperCase()}
-                </button>
-              ))}
+              {slotOptions.map((slotRecord) => {
+                const slot = slotRecord.time;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    disabled={busy || slotState[slot] === "Booked"}
+                    onClick={() => selectSlot(slot)}
+                    className={cn(
+                      "h-11 rounded-lg border text-sm font-medium transition-colors",
+                      slotState[slot] === "Available" &&
+                        "border-success/25 bg-success/10 text-success hover:bg-success/15",
+                      slotState[slot] === "Selected" &&
+                        "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15",
+                      slotState[slot] === "Booked" && "border-border bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {slotRecord.label ?? `${slotRecord.time} - ${slotRecord.end ?? ""}`.trim()} - {slotState[slot].toUpperCase()}
+                  </button>
+                );
+              })}
             </div>
             {slotOptions.length === 0 && (
               <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -356,7 +450,7 @@ function AppointmentBookingPage() {
           </div>
           <Button
             onClick={confirmBooking}
-            disabled={busy || patientsLoading || appointmentsLoading}
+            disabled={busy || patientsLoading || appointmentsLoading || doctorsLoading}
             className="mt-5 w-full gap-1.5 bg-primary text-primary-foreground"
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -436,16 +530,17 @@ function readEntityId(response) {
 }
 
 function normalizeSlot(item) {
-  if (typeof item === "string") return { time: item, status: "Available" };
-  const status = String(item.status ?? item.state ?? "Available").toLowerCase();
+  if (typeof item === "string") return { time: item, status: "Available", label: item };
+  const start = String(item.start ?? item.time ?? item.slot ?? "");
+  const end = String(item.end ?? item.to ?? "");
+  const isBooked = [item.isBooked, item.booked].some(
+    (value) => String(value ?? "").toLowerCase() === "true",
+  );
   return {
-    time: String(item.time ?? item.slot ?? item.value ?? ""),
-    status:
-      status.includes("book") || status.includes("unavailable")
-        ? "Booked"
-        : status.includes("lock")
-          ? "Locked"
-          : "Available",
+    time: start,
+    end,
+    label: end ? `${start} - ${end}` : start,
+    status: isBooked ? "Booked" : "Available",
   };
 }
 

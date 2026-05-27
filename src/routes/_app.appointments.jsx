@@ -20,10 +20,7 @@ function AppointmentsPage() {
     async () => toArray(await api.appointments.list()).map(normalizeAppointment),
     [],
   );
-  const appointments =
-    apiAppointments.length > 0
-      ? apiAppointments.map(normalizeAdminAppointment)
-      : receptionStore.appointments.map(normalizeAdminAppointment);
+  const appointments = apiAppointments.map(normalizeAdminAppointment);
   const [selected, setSelected] = useState(null);
   const [dateFilter, setDateFilter] = useState(String(search.date ?? ""));
   const [doctorFilter, setDoctorFilter] = useState(String(search.doctor ?? "all"));

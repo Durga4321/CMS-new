@@ -23,6 +23,7 @@ function BillingPage() {
     async () => toArray(await api.patients.list()).map(normalizePatient),
     [],
   );
+  const patients = apiPatients;
   const {
     data: apiAppointments,
     loading: appointmentsLoading,
@@ -38,10 +39,8 @@ function BillingPage() {
     error: billsError,
     reload: reloadBills,
   } = useApiResource(async () => toArray(await api.billing.list()).map(normalizeBill), []);
-  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
-  const appointments =
-    apiAppointments.length > 0 ? apiAppointments : receptionStore.appointments;
-  const bills = apiBills.length > 0 ? apiBills : receptionStore.bills;
+  const appointments = apiAppointments;
+  const bills = apiBills;
   const billableAppointments = appointments.filter((item) =>
     ["Waiting", "Consulted", "Completed"].includes(item.status),
   );

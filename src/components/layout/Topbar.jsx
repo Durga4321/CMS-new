@@ -25,8 +25,8 @@ import { cn } from "@/lib/utils";
 const titleMap = {
   "/admin-dashboard": "Dashboard",
   "/dashboard": "Dashboard",
-  "/doctors": "Doctor Management",
-  "/staff": "Staff Management",
+  "/doctors": "Doctors",
+  "/staff": "Staff",
   "/schedule": "Schedule Setup",
   "/patients": "Patient Overview",
   "/appointments": "Appointment Monitoring",
@@ -55,13 +55,12 @@ const adminSearchModules = [
     terms: ["home", "overview", "dashboard", "total doctors", "total patients", "revenue"],
   },
   {
-    label: "Manage Doctors",
+    label: "Doctors",
     description: "Doctor list, add doctor, edit doctor and schedule setup",
     to: "/doctors",
     terms: [
       "doctor",
       "doctors",
-      "manage doctors",
       "add doctor",
       "edit doctor",
       "specialization",
@@ -69,10 +68,10 @@ const adminSearchModules = [
     ],
   },
   {
-    label: "Manage Staff",
+    label: "Staff",
     description: "Staff list, add staff, roles and disable access",
     to: "/staff",
-    terms: ["staff", "manage staff", "add staff", "role", "disable staff", "employee"],
+    terms: ["staff", "add staff", "role", "disable staff", "employee"],
   },
   {
     label: "Schedule Setup",
@@ -89,26 +88,25 @@ const adminSearchModules = [
     ],
   },
   {
-    label: "View Patients",
+    label: "Patients",
     description: "Patient list, patient detail, visit history and prescriptions",
     to: "/patients",
     terms: [
       "patient",
       "patients",
-      "view patients",
       "patient detail",
       "visit history",
       "prescription",
     ],
   },
   {
-    label: "View Appointments",
+    label: "Appointments",
     description: "Appointment list, date filter, doctor filter and status monitoring",
     to: "/appointments",
     terms: [
       "appointment",
       "appointments",
-      "view appointments",
+      "appointments",
       "date",
       "doctor filter",
       "status",

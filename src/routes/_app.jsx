@@ -13,10 +13,7 @@ export const Route = createFileRoute("/_app")({
   beforeLoad: ({ location }) => {
     if (typeof window === "undefined") return;
     if (!hasAuthSession()) {
-      throw redirect({
-        to: "/login",
-        search: { redirect: `${location.pathname}${location.search}` },
-      });
+      throw redirect({ to: "/login" });
     }
 
     const user = getAuthUser();
@@ -60,7 +57,8 @@ export const Route = createFileRoute("/_app")({
       throw redirect({ to: role === "superadmin" ? "/dashboard" : "/admin-dashboard" });
     }
 
-    if (role !== "doctor" && path.startsWith("/doctor")) {
+    const isDoctorPath = path === "/doctor" || path.startsWith("/doctor/");
+    if (role !== "doctor" && isDoctorPath) {
       throw redirect({
         to:
           role === "receptionist"

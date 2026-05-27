@@ -52,13 +52,13 @@ const stats = [
 
 const modules = [
   {
-    label: "Manage Doctors",
+    label: "Doctors",
     description: "Add, edit, delete and configure doctor schedules.",
     icon: Stethoscope,
     to: "/doctors",
   },
   {
-    label: "Manage Staff",
+    label: "Staff",
     description: "Create staff accounts, edit roles and disable access.",
     icon: UserCog,
     to: "/staff",
@@ -70,13 +70,13 @@ const modules = [
     to: "/schedule",
   },
   {
-    label: "View Patients",
+    label: "Patients",
     description: "Review patient profiles, visit history and prescriptions.",
     icon: Users,
     to: "/patients",
   },
   {
-    label: "View Appointments",
+    label: "Appointments",
     description: "Monitor appointments by date, doctor and status.",
     icon: ClipboardList,
     to: "/appointments",

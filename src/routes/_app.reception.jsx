@@ -11,9 +11,9 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { api, toArray } from "@/lib/api";
-import { normalizeAppointment, normalizePatient, normalizeReceptionSummary } from "@/lib/api-normalizers";
+import { normalizeAppointment, normalizePatient } from "@/lib/api-normalizers";
 import { cn } from "@/lib/utils";
-import { today, useReceptionStore } from "@/lib/reception-store";
+import { today } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception")({
   component: ReceptionDashboardPage,
@@ -21,37 +21,12 @@ export const Route = createFileRoute("/_app/reception")({
 });
 
 function ReceptionDashboardPage() {
-  const receptionStore = useReceptionStore();
-  const {
-    data: summary,
-    loading: summaryLoading,
-    error: summaryError,
-  } = useApiResource(
-    async () => normalizeReceptionSummary(await api.receptionDashboard.summary()),
-    {
-      todaysAppointments: 0,
-      waitingPatients: 0,
-      completedAppointments: 0,
-    },
-  );
   const {
     data: apiTodaysAppointments,
     loading: appointmentsLoading,
     error: appointmentsError,
   } = useApiResource(
-    async () => {
-      const dashboardAppointments = toArray(await api.receptionDashboard.appointments()).map(normalizeAppointment);
-      if (dashboardAppointments.length > 0) return dashboardAppointments;
-      return toArray(await api.appointments.today()).map(normalizeAppointment);
-    },
-    [],
-  );
-  const {
-    data: apiWaitingPatients,
-    loading: queueLoading,
-    error: queueError,
-  } = useApiResource(
-    async () => toArray(await api.receptionDashboard.queue()).map(normalizeAppointment),
+    async () => toArray(await api.appointments.today()).map(normalizeAppointment),
     [],
   );
   const {
@@ -59,30 +34,21 @@ function ReceptionDashboardPage() {
     loading: patientsLoading,
     error: patientsError,
   } = useApiResource(async () => toArray(await api.patients.list()).map(normalizePatient), []);
+  const patients = apiPatients;
   const { data: quickActions } = useApiResource(
     async () => toArray(await api.receptionDashboard.quickActions()),
     [],
   );
-  const patients = apiPatients.length > 0 ? apiPatients : receptionStore.patients;
-  const todaysAppointments =
-    apiTodaysAppointments.length > 0 ? apiTodaysAppointments : receptionStore.todaysAppointments;
+  const todaysAppointments = apiTodaysAppointments;
   const bookedPatientIds = new Set(todaysAppointments.map((item) => item.patientId).filter(Boolean));
   const appointmentWaitingPatients = todaysAppointments.filter((item) => item.status === "Waiting");
   const unbookedPatients = patients
     .filter((patient) => !bookedPatientIds.has(patient.id))
     .map(patientToWaitingQueueItem);
-  const waitingPatients =
-    apiWaitingPatients.length > 0
-      ? apiWaitingPatients
-      : appointmentWaitingPatients.length > 0
-        ? appointmentWaitingPatients
-        : unbookedPatients;
-  const todaysAppointmentCount = Math.max(summary.todaysAppointments || 0, todaysAppointments.length);
-  const waitingPatientCount = Math.max(summary.waitingPatients || 0, waitingPatients.length);
-  const completedCount = Math.max(
-    summary.completedAppointments || 0,
-    todaysAppointments.filter((item) => ["Consulted", "Paid"].includes(item.status)).length,
-  );
+  const waitingPatients = appointmentWaitingPatients.length > 0 ? appointmentWaitingPatients : unbookedPatients;
+  const todaysAppointmentCount = todaysAppointments.length;
+  const waitingPatientCount = waitingPatients.length;
+  const completedCount = todaysAppointments.filter((item) => ["Consulted", "Paid"].includes(item.status)).length;
   const quickActionLinks = quickActions.length
     ? quickActions.map((action) => ({
         label: action.label ?? action.title ?? action.name,
@@ -117,7 +83,7 @@ function ReceptionDashboardPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
           icon={CalendarClock}
           label="Today's Appointments"
@@ -130,6 +96,7 @@ function ReceptionDashboardPage() {
           value={waitingPatientCount}
           tone="warning"
           to="/reception/appointments"
+          search={{ status: "waiting" }}
         />
         <MetricCard
           icon={CheckCircle2}
@@ -139,9 +106,31 @@ function ReceptionDashboardPage() {
           to="/reception/billing"
         />
       </div>
-      {(summaryError || appointmentsError || queueError || patientsError) && (
+
+      <div className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <PageLinkCard
+          icon={UserPlus}
+          label="Patients"
+          description="View and register patients"
+          to="/reception/patients"
+        />
+        <PageLinkCard
+          icon={CalendarPlus}
+          label="Appointments"
+          description="Book and manage appointments"
+          to="/reception/appointments"
+        />
+        <PageLinkCard
+          icon={ReceiptText}
+          label="Billing"
+          description="Create and review invoices"
+          to="/reception/billing"
+        />
+      </div>
+
+      {(appointmentsError || patientsError) && (
         <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {summaryError || appointmentsError || queueError || patientsError}
+          {appointmentsError || patientsError}
         </div>
       )}
 
@@ -205,7 +194,14 @@ function ReceptionDashboardPage() {
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5 shadow-card">
-            <h2 className="text-base font-semibold">Waiting Queue</h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Waiting Queue</h2>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/reception/appointments" search={{ status: "waiting" }}>
+                  View waiting
+                </Link>
+              </Button>
+            </div>
             <div className="mt-4 space-y-3">
               {waitingPatients.map((item, index) => (
                 <div key={item.id} className="flex items-center gap-3 rounded-lg bg-secondary p-3">
@@ -230,7 +226,7 @@ function ReceptionDashboardPage() {
               ))}
               {waitingPatients.length === 0 && (
                 <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  {queueLoading || patientsLoading ? "Loading queue..." : "No patients waiting."}
+                  {appointmentsLoading || patientsLoading ? "Loading queue..." : "No patients waiting."}
                 </div>
               )}
             </div>
@@ -280,7 +276,7 @@ function ActionLink({ icon: Icon, label, to }) {
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone = "primary", to }) {
+function MetricCard({ icon: Icon, label, value, tone = "primary", to, search }) {
   const content = (
     <>
       <div className="flex items-start justify-between">
@@ -305,7 +301,9 @@ function MetricCard({ icon: Icon, label, value, tone = "primary", to }) {
     return (
       <Link
         to={to}
-        className="rounded-xl border border-border bg-card p-5 shadow-card transition-colors hover:bg-accent"
+        search={search}
+        className="group rounded-xl border border-border bg-card p-5 text-card-foreground shadow-card transition-all hover:-translate-y-0.5 hover:shadow-elev hover:border-primary/40 hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring/20"
+        aria-label={`View ${label}`}
       >
         {content}
       </Link>
@@ -316,6 +314,26 @@ function MetricCard({ icon: Icon, label, value, tone = "primary", to }) {
     <div className="rounded-xl border border-border bg-card p-5 shadow-card">
       {content}
     </div>
+  );
+}
+
+function PageLinkCard({ icon: Icon, label, description, to }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-xl border border-border bg-card p-5 text-card-foreground shadow-card transition-all hover:shadow-elev hover:border-primary/40 hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring/20"
+      aria-label={`Open ${label}`}
+    >
+      <div className="flex items-center gap-3">
+        <div className="grid h-10 w-10 place-items-center rounded-lg bg-primary-soft text-primary">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold">{label}</div>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </Link>
   );
 }
 

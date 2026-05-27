@@ -1,4 +1,14 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || "";
+export const AUTH_API_BASE_URL = API_BASE_URL;
+const NEW_API_BASE_URL = "https://posological-bea-subacademically.ngrok-free.dev";
+export const APPOINTMENT_API_BASE_URL =
+  import.meta.env.VITE_APPOINTMENT_API_BASE_URL?.trim() || NEW_API_BASE_URL;
+export const PATIENT_API_BASE_URL =
+  import.meta.env.VITE_PATIENT_API_BASE_URL?.trim() || NEW_API_BASE_URL;
+export const DOCTOR_API_BASE_URL =
+  import.meta.env.VITE_DOCTOR_API_BASE_URL?.trim() || NEW_API_BASE_URL;
+export const RECEPTION_API_BASE_URL =
+  import.meta.env.VITE_RECEPTION_API_BASE_URL?.trim() || NEW_API_BASE_URL;
 
 const TOKEN_KEY = "clinic_command_center_token";
 const USER_KEY = "clinic_command_center_user";
@@ -13,7 +23,7 @@ export function getAuthToken() {
 }
 
 export function hasAuthSession() {
-  return Boolean(getAuthToken() || getAuthUser());
+  return Boolean(getAuthToken());
 }
 
 export function setAuthToken(token, remember = true) {
@@ -311,7 +321,8 @@ export async function apiRequest(path, options = {}) {
 
   if (token) requestHeaders.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE_URL}${path}`;
+  const response = await fetch(url, {
     ...init,
     headers: requestHeaders,
     body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
@@ -418,6 +429,28 @@ const withQuery = (path, params = {}) => {
   return text ? `${path}?${text}` : path;
 };
 
+async function apiRequestWithFallback(primaryPath, fallbackPath, options = {}) {
+  try {
+    return await apiRequest(primaryPath, options);
+  } catch (error) {
+    if (error?.status === 404) {
+      return apiRequest(fallbackPath, options);
+    }
+    throw error;
+  }
+}
+
+async function apiRequestWithHostFallback(primaryPath, primaryOptions, fallbackPath, fallbackOptions = primaryOptions) {
+  try {
+    return await apiRequest(primaryPath, primaryOptions);
+  } catch (error) {
+    if (error?.status === 404 || error?.status === 400) {
+      return apiRequest(fallbackPath, fallbackOptions);
+    }
+    throw error;
+  }
+}
+
 export const api = {
   admins: {
     list: () => apiRequest("/api/admins"),
@@ -428,14 +461,28 @@ export const api = {
   },
   auth: {
     superAdminLogin: (data) =>
-      apiRequest("/api/auth/super-admin-login", { ...json("POST", data), auth: false }),
-    register: (data) => apiRequest("/api/auth/register", { ...json("POST", data), auth: false }),
-    login: (data) => apiRequest("/api/auth/login", { ...json("POST", data), auth: false }),
+      apiRequest(`${AUTH_API_BASE_URL}/api/auth/super-admin-login`, {
+        ...json("POST", data),
+        auth: false,
+      }),
+    register: (data) =>
+      apiRequest(`${AUTH_API_BASE_URL}/api/auth/register`, { ...json("POST", data), auth: false }),
+    login: (data) => apiRequest(`${AUTH_API_BASE_URL}/api/auth/login`, { ...json("POST", data), auth: false }),
     forgotPassword: (data) =>
-      apiRequest("/api/auth/forgot-password", { ...json("POST", data), auth: false }),
-    verifyOtp: (data) => apiRequest("/api/auth/verify-otp", { ...json("POST", data), auth: false }),
+      apiRequest(`${AUTH_API_BASE_URL}/api/auth/forgot-password`, {
+        ...json("POST", data),
+        auth: false,
+      }),
+    verifyOtp: (data) =>
+      apiRequest(`${AUTH_API_BASE_URL}/api/auth/verify-otp`, {
+        ...json("POST", data),
+        auth: false,
+      }),
     resetPassword: (data) =>
-      apiRequest("/api/auth/reset-password", { ...json("POST", data), auth: false }),
+      apiRequest(`${AUTH_API_BASE_URL}/api/auth/reset-password`, {
+        ...json("POST", data),
+        auth: false,
+      }),
   },
   clinics: {
     list: () => apiRequest("/api/clinics"),
@@ -450,11 +497,15 @@ export const api = {
     activities: () => apiRequest("/api/dashboard/activities"),
   },
   doctors: {
-    list: () => apiRequest("/api/doctors"),
-    create: (data) => apiRequest("/api/doctors", json("POST", data)),
-    get: (id) => apiRequest(byId("/api/doctors", id)),
-    update: (id, data) => apiRequest(byId("/api/doctors", id), json("PUT", data)),
-    remove: (id) => apiRequest(byId("/api/doctors", id), { method: "DELETE" }),
+    list: () => apiRequest(`${DOCTOR_API_BASE_URL}/api/Doctor`),
+    create: (data) => apiRequest(`${DOCTOR_API_BASE_URL}/api/Doctor`, json("POST", data)),
+    get: (id) => apiRequest(`${DOCTOR_API_BASE_URL}/api/Doctor/${encodeURIComponent(id)}`),
+    update: (id, data) =>
+      apiRequest(`${DOCTOR_API_BASE_URL}/api/Doctor/${encodeURIComponent(id)}`, json("PUT", data)),
+    remove: (id) =>
+      apiRequest(`${DOCTOR_API_BASE_URL}/api/Doctor/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
   },
   logs: {
     audit: () => apiRequest("/api/logs/audit"),
@@ -465,25 +516,57 @@ export const api = {
     create: (data) => apiRequest("/api/notifications", json("POST", data)),
   },
   patients: {
-    list: () => apiRequest("/api/patients"),
-    create: (data) => apiRequest("/api/patients", json("POST", data)),
-    get: (id) => apiRequest(byId("/api/patients", id)),
-    update: (id, data) => apiRequest(byId("/api/patients", id), json("PUT", data)),
-    remove: (id) => apiRequest(byId("/api/patients", id), { method: "DELETE" }),
+    list: () => apiRequest(`${PATIENT_API_BASE_URL}/api/Patient`),
+    create: (data) => apiRequest(`${PATIENT_API_BASE_URL}/api/Patient`, json("POST", data)),
+    get: (id) => apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`),
+    update: (id, data) =>
+      apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`, json("PUT", data)),
+    remove: (id) =>
+      apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
   },
   appointments: {
-    list: () => apiRequest("/api/appointments"),
-    create: (data) => apiRequest("/api/appointments", json("POST", data)),
-    get: (id) => apiRequest(byId("/api/appointments", id)),
-    today: () => apiRequest("/api/appointments/today"),
-    slots: (params) => apiRequest(withQuery("/api/appointments/slots", params)),
-    lockSlot: (data) => apiRequest("/api/appointments/lock-slot", json("POST", data)),
+    list: () => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`),
+    create: (data) => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`, json("POST", data)),
+    get: (id) => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}`),
+    today: async () => {
+      const allAppointments = toArray(await apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`));
+      const currentDate = new Date().toISOString().slice(0, 10);
+      return allAppointments.filter((item) => String(item.date).slice(0, 10) === currentDate);
+    },
+    slots: (params) => apiRequest(withQuery(`${APPOINTMENT_API_BASE_URL}/api/Schedule/day-slots`, params)),
+    lockSlot: (data) =>
+      apiRequestWithFallback(
+        `${APPOINTMENT_API_BASE_URL}/api/Appointment/lock-slot`,
+        `${APPOINTMENT_API_BASE_URL}/api/appointments/lock-slot`,
+        json("POST", data),
+      ),
+    setStatus: (id, status) =>
+      apiRequest(
+        `${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}/status?status=${encodeURIComponent(
+          status,
+        )}`,
+        { method: "PATCH" },
+      ),
     confirm: (id, data = {}) =>
-      apiRequest(`${byId("/api/appointments", id)}/confirm`, json("POST", data)),
+      apiRequestWithFallback(
+        `${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}/confirm`,
+        `${APPOINTMENT_API_BASE_URL}/api/appointments/${encodeURIComponent(id)}/confirm`,
+        json("POST", data),
+      ),
     complete: (id, data = {}) =>
-      apiRequest(`${byId("/api/appointments", id)}/complete`, json("PUT", data)),
+      apiRequestWithFallback(
+        `${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}/complete`,
+        `${APPOINTMENT_API_BASE_URL}/api/appointments/${encodeURIComponent(id)}/complete`,
+        json("PUT", data),
+      ),
     noShow: (id, data = {}) =>
-      apiRequest(`${byId("/api/appointments", id)}/no-show`, json("PUT", data)),
+      apiRequestWithFallback(
+        `${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}/no-show`,
+        `${APPOINTMENT_API_BASE_URL}/api/appointments/${encodeURIComponent(id)}/no-show`,
+        json("PUT", data),
+      ),
   },
   billing: {
     list: () => apiRequest("/api/billing"),
@@ -493,10 +576,26 @@ export const api = {
       apiRequest(`${byId("/api/billing/by-appointment", appointmentId)}`),
   },
   receptionDashboard: {
-    summary: () => apiRequest("/api/reception-dashboard/summary"),
-    appointments: () => apiRequest("/api/reception-dashboard/appointments"),
-    queue: () => apiRequest("/api/reception-dashboard/queue"),
-    quickActions: () => apiRequest("/api/reception-dashboard/quick-actions"),
+    summary: () =>
+      apiRequestWithFallback(
+        `${RECEPTION_API_BASE_URL}/api/reception-dashboard/summary`,
+        `${API_BASE_URL}/api/reception-dashboard/summary`,
+      ),
+    appointments: () =>
+      apiRequestWithFallback(
+        `${RECEPTION_API_BASE_URL}/api/reception-dashboard/appointments`,
+        `${API_BASE_URL}/api/reception-dashboard/appointments`,
+      ),
+    queue: () =>
+      apiRequestWithFallback(
+        `${RECEPTION_API_BASE_URL}/api/reception-dashboard/queue`,
+        `${API_BASE_URL}/api/reception-dashboard/queue`,
+      ),
+    quickActions: () =>
+      apiRequestWithFallback(
+        `${RECEPTION_API_BASE_URL}/api/reception-dashboard/quick-actions`,
+        `${API_BASE_URL}/api/reception-dashboard/quick-actions`,
+      ),
   },
   reports: {
     revenue: () => apiRequest("/api/revenue"),

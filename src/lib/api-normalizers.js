@@ -138,9 +138,12 @@ export function normalizePatient(item, index = 0) {
     ),
     patientId: text(item.patientId ?? item.patient_id ?? item.pid ?? item.id, `PID-${index + 1}`),
     name: text(name, "Unnamed patient"),
+    patientCode: text(item.patientCode ?? item.patient_code ?? item.pid ?? "", ""),
     age: text(item.age, ""),
     dob: text(item.dob ?? item.dateOfBirth ?? item.date_of_birth, ""),
+    lastVisit: text(item.lastVisit ?? item.last_visit ?? "", ""),
     gender: text(item.gender, "Female"),
+    bloodGroup: text(item.bloodGroup ?? item.blood_group ?? item.blood ?? "", ""),
     type: text(item.type ?? item.patientType ?? item.patient_type, "OPD"),
     phone: text(item.phone ?? item.mobile ?? item.mobileNumber ?? item.mobile_number, ""),
     email: text(item.email, ""),
@@ -160,6 +163,27 @@ export function normalizePatient(item, index = 0) {
       "",
     ),
     chronicDiseases: normalizeStringList(item.chronicDiseases ?? item.chronic_diseases),
+  };
+}
+
+export function normalizeDoctor(item, index = 0) {
+  item = item ?? {};
+  return {
+    id: text(item.id ?? item._id ?? item.doctorId ?? item.doctor_id, `doctor-${index + 1}`),
+    name: text(
+      item.name ?? item.fullName ?? [item.firstName, item.lastName].filter(Boolean).join(" "),
+      "",
+    ),
+    email: text(item.email, ""),
+    phone: text(item.phone ?? item.mobile ?? item.phoneNumber ?? item.mobileNumber, ""),
+    specialization: text(item.specialization ?? item.speciality ?? item.department, ""),
+    experience: text(item.experience ?? item.yearsOfExperience, ""),
+    qualification: text(item.qualification ?? item.degree, ""),
+    fee: text(
+      item.fee ?? item.fees ?? item.consultationFee ?? item.consultation_fee,
+      "",
+    ),
+    status: normalizeStatus(item.status ?? item.isActive),
   };
 }
 
@@ -189,7 +213,10 @@ export function normalizeAppointment(item, index = 0) {
     patient: text(patientName, "Unnamed patient"),
     doctor: text(doctorName, "Doctor not assigned"),
     date: text(item.date ?? item.appointmentDate ?? item.appointment_date, ""),
-    time: text(item.time ?? item.slot ?? item.appointmentTime ?? item.appointment_time, ""),
+    time: text(
+      item.time ?? item.slot ?? item.startTime ?? item.start_time ?? item.appointmentTime ?? item.appointment_time,
+      "",
+    ),
     status: normalizeAppointmentStatus(item.status ?? item.appointmentStatus),
   };
 }

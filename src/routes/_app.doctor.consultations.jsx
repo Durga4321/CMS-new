@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { api, toArray } from "@/lib/api";
 import { normalizeAppointment, normalizePatient } from "@/lib/api-normalizers";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/doctor/consultations")({
   component: DoctorConsultationsPage,
@@ -18,22 +17,15 @@ function DoctorConsultationsPage() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
   const statusFilter = String(search.status ?? "all");
-  const receptionStore = useReceptionStore();
   const { data: apiConsultations, loading, error } = useApiResource(
     async () => toArray(await api.appointments.today()).map(normalizeDoctorConsultation),
     [],
   );
-  const { data: apiPatients } = useApiResource(
+  const { data: apiPatients, error: patientsError } = useApiResource(
     async () => toArray(await api.patients.list()).map(normalizeWaitingPatientConsultation),
     [],
   );
-  const sourceConsultations =
-    apiConsultations.length > 0 || apiPatients.length > 0
-      ? mergeWaitingPatients(apiConsultations, apiPatients)
-      : mergeWaitingPatients(
-          receptionStore.todaysAppointments.map(normalizeDoctorConsultation),
-          receptionStore.patients.map(normalizeWaitingPatientConsultation),
-        );
+  const sourceConsultations = mergeWaitingPatients(apiConsultations, apiPatients);
   const [consultationOverrides, setConsultationOverrides] = useState({});
   const consultations = sourceConsultations.map((item) => ({
     ...item,

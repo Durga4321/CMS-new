@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { api, toArray } from "@/lib/api";
 import { normalizeAppointment, normalizePatient } from "@/lib/api-normalizers";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { useReceptionStore } from "@/lib/reception-store";
+
 
 export const Route = createFileRoute("/_app/doctor")({
   component: DoctorConsolePage,
@@ -27,7 +27,6 @@ export const Route = createFileRoute("/_app/doctor")({
 });
 
 function DoctorConsolePage() {
-  const receptionStore = useReceptionStore();
   const { data: apiPatients, error: patientsError } = useApiResource(
     async () => toArray(await api.patients.list()).map(normalizeDashboardPatient),
     [],
@@ -36,13 +35,7 @@ function DoctorConsolePage() {
     async () => toArray(await api.appointments.today()).map(normalizeAppointment),
     [],
   );
-  const sourcePatients =
-    apiPatients.length > 0
-      ? mergeAppointments(apiPatients, apiAppointments)
-      : mergeAppointments(
-          receptionStore.patients.map((patient, index) => normalizeDashboardPatient(patient, index)),
-          receptionStore.todaysAppointments,
-        );
+  const sourcePatients = mergeAppointments(apiPatients, apiAppointments);
   const [patientOverrides, setPatientOverrides] = useState({});
   const patients = sourcePatients.map((patient) => ({
     ...patient,
