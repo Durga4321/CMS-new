@@ -12,38 +12,18 @@ const initialState = {
 
 export const doctors = ["Dr. Meera Iyer", "Dr. Arjun Rao", "Dr. Kavya Menon"];
 export const slots = ["09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "14:00", "14:30"];
-export const chronicOptions = ["Hypertension", "Diabetes", "Asthma", "Thyroid", "Heart Disease"];
-
 export const emptyPatient = {
   id: "",
   name: "",
   age: "",
   dob: "",
   gender: "Female",
-  type: "OPD",
   phone: "",
   email: "",
-  street: "",
-  city: "",
-  state: "",
-  pinCode: "",
+  address: "",
+  bloodGroup: "",
   emergencyName: "",
   emergencyPhone: "",
-  drugAllergies: "",
-  foodAllergies: "",
-  environmentalAllergies: "",
-  chronicDiseases: [],
-  otherChronic: "",
-  medicationName: "",
-  medicationDosage: "",
-  medicationFrequency: "",
-  surgeryName: "",
-  surgeryYear: "",
-  previousVisitDate: "",
-  previousDoctor: "",
-  previousComplaint: "",
-  previousDiagnosis: "",
-  previousTreatment: "",
 };
 
 function readState() {

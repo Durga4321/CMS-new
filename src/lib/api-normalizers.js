@@ -55,7 +55,14 @@ export function normalizeClinic(item, index = 0) {
         item.mobile_number,
       "",
     ),
-    admins: item.adminsCount ?? item.adminCount ?? item.totalAdmins ?? item.admins?.length ?? item.usersCount ?? item.userCount ?? 0,
+    admins:
+      item.adminsCount ??
+      item.adminCount ??
+      item.totalAdmins ??
+      item.admins?.length ??
+      item.usersCount ??
+      item.userCount ??
+      0,
     status: normalizeStatus(item.status ?? item.isActive),
   };
 }
@@ -140,6 +147,7 @@ export function normalizePatient(item, index = 0) {
     name: text(name, "Unnamed patient"),
     patientCode: text(item.patientCode ?? item.patient_code ?? item.pid ?? "", ""),
     age: text(item.age, ""),
+    dateOfBirth: text(item.dateOfBirth ?? item.dob ?? item.date_of_birth, ""),
     dob: text(item.dob ?? item.dateOfBirth ?? item.date_of_birth, ""),
     lastVisit: text(item.lastVisit ?? item.last_visit ?? "", ""),
     gender: text(item.gender, "Female"),
@@ -147,10 +155,22 @@ export function normalizePatient(item, index = 0) {
     type: text(item.type ?? item.patientType ?? item.patient_type, "OPD"),
     phone: text(item.phone ?? item.mobile ?? item.mobileNumber ?? item.mobile_number, ""),
     email: text(item.email, ""),
+    address: text(item.address ?? item.street ?? item.streetAddress ?? item.street_address, ""),
     street: text(item.street ?? item.address ?? item.streetAddress ?? item.street_address, ""),
     city: text(item.city, ""),
     state: text(item.state, ""),
     pinCode: text(item.pinCode ?? item.pincode ?? item.pin_code ?? item.zipCode, ""),
+    emergencyContactName: text(
+      item.emergencyContactName ?? item.emergencyName ?? item.emergency_contact_name,
+      "",
+    ),
+    emergencyContactPhone: text(
+      item.emergencyContactPhone ??
+        item.emergencyPhone ??
+        item.emergency_contact_phone ??
+        item.emergencyContactMobileNumber,
+      "",
+    ),
     emergencyName: text(
       item.emergencyName ?? item.emergencyContactName ?? item.emergency_contact_name,
       "",
@@ -179,10 +199,7 @@ export function normalizeDoctor(item, index = 0) {
     specialization: text(item.specialization ?? item.speciality ?? item.department, ""),
     experience: text(item.experience ?? item.yearsOfExperience, ""),
     qualification: text(item.qualification ?? item.degree, ""),
-    fee: text(
-      item.fee ?? item.fees ?? item.consultationFee ?? item.consultation_fee,
-      "",
-    ),
+    fee: text(item.fee ?? item.fees ?? item.consultationFee ?? item.consultation_fee, ""),
     status: normalizeStatus(item.status ?? item.isActive),
   };
 }
@@ -214,7 +231,12 @@ export function normalizeAppointment(item, index = 0) {
     doctor: text(doctorName, "Doctor not assigned"),
     date: text(item.date ?? item.appointmentDate ?? item.appointment_date, ""),
     time: text(
-      item.time ?? item.slot ?? item.startTime ?? item.start_time ?? item.appointmentTime ?? item.appointment_time,
+      item.time ??
+        item.slot ??
+        item.startTime ??
+        item.start_time ??
+        item.appointmentTime ??
+        item.appointment_time,
       "",
     ),
     status: normalizeAppointmentStatus(item.status ?? item.appointmentStatus),
