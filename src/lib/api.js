@@ -3,7 +3,9 @@ import { SUPER_ADMIN_EMAIL } from "@/lib/auth-routing";
 const SUPER_ADMIN_API_BASE_URL =
   import.meta.env.VITE_SUPER_ADMIN_API_BASE_URL?.trim() ||
   "https://irritant-kilobyte-until.ngrok-free.dev";
-const APP_API_BASE_URL = import.meta.env.VITE_APP_API_BASE_URL?.trim() || "https://posological-bea-subacademically.ngrok-free.dev";
+const APP_API_BASE_URL =
+  import.meta.env.VITE_APP_API_BASE_URL?.trim() ||
+  "https://posological-bea-subacademically.ngrok-free.dev";
 
 export const API_BASE_URL = APP_API_BASE_URL;
 export const AUTH_API_BASE_URL = APP_API_BASE_URL;
@@ -35,8 +37,12 @@ export function hasAuthSession() {
 
 function getSessionBaseUrl() {
   const user = getAuthUser();
-  const email = String(user?.email ?? user?.Email ?? "").trim().toLowerCase();
-  const role = String(user?.role ?? user?.Role ?? "").trim().toLowerCase();
+  const email = String(user?.email ?? user?.Email ?? "")
+    .trim()
+    .toLowerCase();
+  const role = String(user?.role ?? user?.Role ?? "")
+    .trim()
+    .toLowerCase();
   const isSuperAdminSession = email === SUPER_ADMIN_EMAIL || role.includes("superadmin");
   return isSuperAdminSession ? SUPER_ADMIN_API_BASE_URL || APP_API_BASE_URL : APP_API_BASE_URL;
 }
@@ -188,9 +194,11 @@ export function getPayload(response) {
 export function toArray(response) {
   const value = getPayload(response);
   if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.$values)) return value.$values;
   if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.results)) return value.results;
   if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.data?.$values)) return value.data.$values;
   if (Array.isArray(value?.rows)) return value.rows;
   return [];
 }
@@ -455,7 +463,12 @@ async function apiRequestWithFallback(primaryPath, fallbackPath, options = {}) {
   }
 }
 
-async function apiRequestWithHostFallback(primaryPath, primaryOptions, fallbackPath, fallbackOptions = primaryOptions) {
+async function apiRequestWithHostFallback(
+  primaryPath,
+  primaryOptions,
+  fallbackPath,
+  fallbackOptions = primaryOptions,
+) {
   try {
     return await apiRequest(primaryPath, primaryOptions);
   } catch (error) {
@@ -482,7 +495,8 @@ export const api = {
       }),
     register: (data) =>
       apiRequest(`${APP_API_BASE_URL}/api/Auth/register`, { ...json("POST", data), auth: false }),
-    login: (data) => apiRequest(`${APP_API_BASE_URL}/api/auth/login`, { ...json("POST", data), auth: false }),
+    login: (data) =>
+      apiRequest(`${APP_API_BASE_URL}/api/auth/login`, { ...json("POST", data), auth: false }),
     forgotPassword: (data) =>
       apiRequest(`${APP_API_BASE_URL}/api/auth/forgot-password`, {
         ...json("POST", data),
@@ -535,27 +549,43 @@ export const api = {
     create: (data) => apiRequest(`${PATIENT_API_BASE_URL}/api/Patient`, json("POST", data)),
     get: (id) => apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`),
     update: (id, data) =>
-      apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`, json("PUT", data)),
+      apiRequest(
+        `${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`,
+        json("PUT", data),
+      ),
     remove: (id) =>
       apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
   },
   medicalHistory: {
-    get: (patientId) => apiRequest(`/api/MedicalHistory/${encodeURIComponent(patientId)}`),
-    create: (data) => apiRequest("/api/MedicalHistory", json("POST", data)),
-    remove: (id) => apiRequest(`/api/MedicalHistory/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    get: (patientId) =>
+      apiRequest(`${APP_API_BASE_URL}/api/MedicalHistory/${encodeURIComponent(patientId)}`),
+    create: (data) => apiRequest(`${APP_API_BASE_URL}/api/MedicalHistory`, json("POST", data)),
+    update: (id, data) =>
+      apiRequest(
+        `${APP_API_BASE_URL}/api/MedicalHistory/${encodeURIComponent(id)}`,
+        json("PUT", data),
+      ),
+    remove: (id) =>
+      apiRequest(`${APP_API_BASE_URL}/api/MedicalHistory/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
   },
   appointments: {
     list: () => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`),
     create: (data) => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`, json("POST", data)),
-    get: (id) => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}`),
+    get: (id) =>
+      apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment/${encodeURIComponent(id)}`),
     today: async () => {
-      const allAppointments = toArray(await apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`));
+      const allAppointments = toArray(
+        await apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`),
+      );
       const currentDate = new Date().toISOString().slice(0, 10);
       return allAppointments.filter((item) => String(item.date).slice(0, 10) === currentDate);
     },
-    slots: (params) => apiRequest(withQuery(`${APPOINTMENT_API_BASE_URL}/api/Schedule/day-slots`, params)),
+    slots: (params) =>
+      apiRequest(withQuery(`${APPOINTMENT_API_BASE_URL}/api/Schedule/day-slots`, params)),
     lockSlot: (data) =>
       apiRequestWithFallback(
         `${APPOINTMENT_API_BASE_URL}/api/Appointment/lock-slot`,

@@ -8,7 +8,6 @@ import { useApiResource } from "@/hooks/use-api-resource";
 import { api, toArray, getPayload } from "@/lib/api";
 import { normalizePatient } from "@/lib/api-normalizers";
 import {
-  alphaNumericOnly,
   cleanEmail,
   digitsOnly,
   EMAIL_INPUT_PATTERN,
@@ -21,14 +20,16 @@ import {
   validatePastOrTodayDate,
   validatePhone,
 } from "@/lib/form-validation";
-import { chronicOptions, emptyPatient, nextPatientId, useReceptionStore } from "@/lib/reception-store";
+import { emptyPatient, nextPatientId, useReceptionStore } from "@/lib/reception-store";
 
 export const Route = createFileRoute("/_app/reception/patients")({
   component: ReceptionPatientsPage,
   head: () => ({ meta: [{ title: "Patients - Medisuite" }] }),
 });
 
-const EMPTY_MEDICAL_HISTORY_FORM = {
+const emptyMedicalHistory = {
+  id: "",
+  patientId: "",
   allergies: "",
   chronicDiseases: "",
   currentMedications: "",
@@ -39,44 +40,19 @@ function resolveMedicalHistoryPatientId(patient) {
   const rawValue = patient?.patientId ?? patient?.id ?? "";
   const numericValue = String(rawValue).match(/\d+/)?.[0] ?? "";
   const patientId = Number(numericValue || rawValue);
-  return Number.isFinite(patientId) ? patientId : null;
+  return Number.isFinite(patientId) ? patientId : "";
 }
 
-function buildMedicalHistoryForm(patient, record = null) {
+function normalizeMedicalHistory(record, patientId = "") {
   const medicalHistory = getPayload(record) ?? record ?? {};
   return {
-    allergies:
-      medicalHistory.allergies ??
-      [patient?.drugAllergies, patient?.foodAllergies, patient?.environmentalAllergies]
-        .filter(Boolean)
-        .join(", "),
-    chronicDiseases:
-      medicalHistory.chronicDiseases ??
-      [...(Array.isArray(patient?.chronicDiseases) ? patient.chronicDiseases : []), patient?.otherChronic]
-        .filter(Boolean)
-        .join(", "),
-    currentMedications:
-      medicalHistory.currentMedications ??
-      [patient?.medicationName, patient?.medicationDosage, patient?.medicationFrequency]
-        .filter(Boolean)
-        .join(" | "),
-    surgeries:
-      medicalHistory.surgeries ??
-      [patient?.surgeryName, patient?.surgeryYear].filter(Boolean).join(" - "),
-  };
-}
-
-function normalizeMedicalHistoryRecord(record) {
-  const medicalHistory = getPayload(record) ?? record ?? {};
-  return {
-    id: medicalHistory.id ?? medicalHistory.medicalHistoryId ?? "",
-    patientId: medicalHistory.patientId ?? medicalHistory.patient_id ?? "",
+    id: String(medicalHistory.id ?? medicalHistory.medicalHistoryId ?? ""),
+    patientId: String(medicalHistory.patientId ?? medicalHistory.patient_id ?? patientId ?? ""),
     allergies: medicalHistory.allergies ?? "",
     chronicDiseases: medicalHistory.chronicDiseases ?? medicalHistory.chronic_diseases ?? "",
     currentMedications:
       medicalHistory.currentMedications ?? medicalHistory.current_medications ?? "",
     surgeries: medicalHistory.surgeries ?? medicalHistory.surgeryHistory ?? "",
-    createdAt: medicalHistory.createdAt ?? medicalHistory.created_at ?? "",
   };
 }
 
@@ -96,13 +72,10 @@ function ReceptionPatientsPage() {
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState("list");
   const [selectedPatientId, setSelectedPatientId] = useState(null);
-  const [medicalHistory, setMedicalHistory] = useState(null);
-  const [medicalHistoryForm, setMedicalHistoryForm] = useState(EMPTY_MEDICAL_HISTORY_FORM);
+  const [medicalHistoryForm, setMedicalHistoryForm] = useState(emptyMedicalHistory);
   const [medicalHistoryLoading, setMedicalHistoryLoading] = useState(false);
   const [medicalHistorySaving, setMedicalHistorySaving] = useState(false);
-  const [medicalHistoryDeleting, setMedicalHistoryDeleting] = useState(false);
   const [medicalHistoryError, setMedicalHistoryError] = useState("");
-  const [medicalHistoryRefresh, setMedicalHistoryRefresh] = useState(0);
 
   useEffect(() => {
     if (mode === "create") {
@@ -120,8 +93,7 @@ function ReceptionPatientsPage() {
     let active = true;
 
     if (!isViewing || !selectedPatient) {
-      setMedicalHistory(null);
-      setMedicalHistoryForm(EMPTY_MEDICAL_HISTORY_FORM);
+      setMedicalHistoryForm(emptyMedicalHistory);
       setMedicalHistoryLoading(false);
       setMedicalHistoryError("");
       return () => {
@@ -129,11 +101,8 @@ function ReceptionPatientsPage() {
       };
     }
 
-    const nextForm = buildMedicalHistoryForm(selectedPatient);
     const patientId = resolveMedicalHistoryPatientId(selectedPatient);
-
-    setMedicalHistory(null);
-    setMedicalHistoryForm(nextForm);
+    setMedicalHistoryForm({ ...emptyMedicalHistory, patientId: String(patientId) });
     setMedicalHistoryError("");
 
     if (!patientId) {
@@ -144,17 +113,12 @@ function ReceptionPatientsPage() {
     }
 
     setMedicalHistoryLoading(true);
-
     (async () => {
       try {
         const response = await api.medicalHistory.get(patientId);
-        if (!active) return;
-        const record = normalizeMedicalHistoryRecord(response);
-        setMedicalHistory(record);
-        setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient, record));
+        if (active) setMedicalHistoryForm(normalizeMedicalHistory(response, patientId));
       } catch (err) {
-        if (!active) return;
-        if (err?.status !== 404) {
+        if (active && err?.status !== 404) {
           setMedicalHistoryError(err?.message ?? "Unable to load medical history");
         }
       } finally {
@@ -165,7 +129,7 @@ function ReceptionPatientsPage() {
     return () => {
       active = false;
     };
-  }, [isViewing, selectedPatient?.id, selectedPatient?.patientId, medicalHistoryRefresh]);
+  }, [isViewing, selectedPatient]);
 
   const mirrorPatient = (patient) => {
     receptionStore.setReceptionState((current) => {
@@ -197,14 +161,6 @@ function ReceptionPatientsPage() {
   };
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
-  const toggleChronic = (disease) => {
-    setForm((current) => ({
-      ...current,
-      chronicDiseases: current.chronicDiseases.includes(disease)
-        ? current.chronicDiseases.filter((item) => item !== disease)
-        : [...current.chronicDiseases, disease],
-    }));
-  };
 
   const resetForm = (patient = null) => {
     if (!patient) {
@@ -220,29 +176,11 @@ function ReceptionPatientsPage() {
       phone: patient.phone,
       email: patient.email,
       age: patient.age?.toString() ?? "",
-      pinCode: patient.pinCode,
       dob: patient.dob?.slice(0, 10) ?? "",
-      type: patient.type,
-      street: patient.street,
-      city: patient.city,
-      state: patient.state,
+      address: patient.address ?? patient.street ?? "",
+      bloodGroup: patient.bloodGroup ?? "",
       emergencyName: patient.emergencyName,
       emergencyPhone: patient.emergencyPhone,
-      drugAllergies: patient.drugAllergies,
-      foodAllergies: patient.foodAllergies,
-      environmentalAllergies: patient.environmentalAllergies,
-      chronicDiseases: patient.chronicDiseases ?? [],
-      otherChronic: patient.otherChronic ?? "",
-      medicationName: patient.medicationName ?? "",
-      medicationDosage: patient.medicationDosage ?? "",
-      medicationFrequency: patient.medicationFrequency ?? "",
-      surgeryName: patient.surgeryName ?? "",
-      surgeryYear: patient.surgeryYear?.toString() ?? "",
-      previousVisitDate: patient.previousVisitDate?.slice(0, 10) ?? "",
-      previousDoctor: patient.previousDoctor ?? "",
-      previousComplaint: patient.previousComplaint ?? "",
-      previousDiagnosis: patient.previousDiagnosis ?? "",
-      previousTreatment: patient.previousTreatment ?? "",
     });
   };
 
@@ -261,16 +199,15 @@ function ReceptionPatientsPage() {
     setMode("list");
   };
 
-  const handleMedicalHistoryReset = () => {
-    setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient, medicalHistory));
+  const updateMedicalHistory = (field, value) => {
+    setMedicalHistoryForm((current) => ({ ...current, [field]: value }));
   };
 
-  const handleMedicalHistorySubmit = async (event) => {
+  const submitMedicalHistory = async (event) => {
     event.preventDefault();
-    const patientId = resolveMedicalHistoryPatientId(selectedPatient);
-
-    if (!patientId) {
-      toast.error("Selected patient does not have a numeric patient ID.");
+    const patientId = Number(medicalHistoryForm.patientId);
+    if (!patientId || Number.isNaN(patientId)) {
+      setMedicalHistoryError("Selected patient does not have a numeric patient ID.");
       return;
     }
 
@@ -282,55 +219,23 @@ function ReceptionPatientsPage() {
       surgeries: medicalHistoryForm.surgeries.trim(),
     };
 
-    if (medicalHistory?.id) {
-      const shouldReplace = window.confirm(
-        `Replace the existing medical history record for ${selectedPatient?.name || "this patient"}?`,
-      );
-
-      if (!shouldReplace) return;
-    }
-
     setMedicalHistorySaving(true);
     setMedicalHistoryError("");
-
     try {
-      if (medicalHistory?.id) {
-        await api.medicalHistory.remove(medicalHistory.id);
-      }
-      await api.medicalHistory.create(payload);
-      setMedicalHistoryRefresh((value) => value + 1);
-      toast.success(medicalHistory?.id ? "Medical history replaced successfully" : "Medical history saved successfully");
+      const response = medicalHistoryForm.id
+        ? await api.medicalHistory.update(medicalHistoryForm.id, payload)
+        : await api.medicalHistory.create(payload);
+      setMedicalHistoryForm(normalizeMedicalHistory(getPayload(response) ?? payload, patientId));
+      toast.success(
+        medicalHistoryForm.id
+          ? "Medical history updated successfully"
+          : "Medical history saved successfully",
+      );
     } catch (err) {
       setMedicalHistoryError(err?.message ?? "Unable to save medical history");
       toast.error(err?.message ?? "Unable to save medical history");
     } finally {
       setMedicalHistorySaving(false);
-    }
-  };
-
-  const handleMedicalHistoryDelete = async () => {
-    if (!medicalHistory?.id) return;
-
-    const confirmed = window.confirm(
-      `Delete the medical history record for ${selectedPatient?.name || "this patient"}?`,
-    );
-
-    if (!confirmed) return;
-
-    setMedicalHistoryDeleting(true);
-    setMedicalHistoryError("");
-
-    try {
-      await api.medicalHistory.remove(medicalHistory.id);
-      setMedicalHistory(null);
-      setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient));
-      setMedicalHistoryRefresh((value) => value + 1);
-      toast.success("Medical history deleted successfully");
-    } catch (err) {
-      setMedicalHistoryError(err?.message ?? "Unable to delete medical history");
-      toast.error(err?.message ?? "Unable to delete medical history");
-    } finally {
-      setMedicalHistoryDeleting(false);
     }
   };
 
@@ -366,8 +271,8 @@ function ReceptionPatientsPage() {
       emergencyPhone: digitsOnly(form.emergencyPhone),
       email: cleanEmail(form.email),
       age: digitsOnly(form.age, 3),
-      pinCode: digitsOnly(form.pinCode, 6),
-      surgeryYear: digitsOnly(form.surgeryYear, 4),
+      address: form.address.trim(),
+      bloodGroup: form.bloodGroup.trim(),
     };
 
     const error = firstError([
@@ -377,15 +282,9 @@ function ReceptionPatientsPage() {
       validatePastOrTodayDate(patient.dob, "Date of birth"),
       validatePhone(patient.phone),
       patient.email ? validateEmail(patient.email) : "",
-      validateAddress(patient.street, "Street address"),
-      validateName(patient.city, "City"),
-      validateName(patient.state, "State"),
-      patient.pinCode.length === 6 ? "" : "PIN Code must be 6 digits",
+      validateAddress(patient.address, "Address"),
       validateName(patient.emergencyName, "Emergency contact name"),
       validatePhone(patient.emergencyPhone),
-      patient.surgeryYear && Number(patient.surgeryYear) > new Date().getFullYear()
-        ? "Surgery year cannot be in the future"
-        : "",
     ]);
 
     if (error) {
@@ -395,8 +294,11 @@ function ReceptionPatientsPage() {
 
     const duplicate = (patients ?? []).some(
       (item) =>
-        (item.id.toLowerCase() === patient.id.toLowerCase() && (!isEditing || item.id !== selectedPatientId)) ||
-        (item.phone === patient.phone && item.phone && (!isEditing || item.id !== selectedPatientId)),
+        (item.id.toLowerCase() === patient.id.toLowerCase() &&
+          (!isEditing || item.id !== selectedPatientId)) ||
+        (item.phone === patient.phone &&
+          item.phone &&
+          (!isEditing || item.id !== selectedPatientId)),
     );
     if (duplicate) {
       setMessage("Duplicate patient entry found by PID or mobile number.");
@@ -433,8 +335,12 @@ function ReceptionPatientsPage() {
       if (!isEditing) return;
       setSelectedPatientId(null);
     } catch (err) {
-      setMessage(err?.message ?? (isEditing ? "Unable to update patient" : "Unable to save patient"));
-      toast.error(err?.message ?? (isEditing ? "Unable to update patient" : "Unable to save patient"));
+      setMessage(
+        err?.message ?? (isEditing ? "Unable to update patient" : "Unable to save patient"),
+      );
+      toast.error(
+        err?.message ?? (isEditing ? "Unable to update patient" : "Unable to save patient"),
+      );
     } finally {
       setSaving(false);
     }
@@ -447,28 +353,28 @@ function ReceptionPatientsPage() {
         description="Manage patients: add new patients, view existing details, update records, or remove outdated entries."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
-          onClick={() => setMode("create")}
-        >
-          <Plus className="h-4 w-4" />
-          Add Patient
-        </Button>
-        <Button variant="ghost" className="gap-1.5" onClick={() => reload()}>
-          <RefreshCcw className="h-4 w-4" />
-          Refresh
-        </Button>
-        <Button
-          variant="outline"
-          className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
-          asChild
-        >
-          <Link to="/reception">
-            <ArrowLeft className="mr-1.5 h-4 w-4" />
-            Dashboard
-          </Link>
-        </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
+              onClick={() => setMode("create")}
+            >
+              <Plus className="h-4 w-4" />
+              Add Patient
+            </Button>
+            <Button variant="ghost" className="gap-1.5" onClick={() => reload()}>
+              <RefreshCcw className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-200 hover:bg-emerald-200"
+              asChild
+            >
+              <Link to="/reception">
+                <ArrowLeft className="mr-1.5 h-4 w-4" />
+                Dashboard
+              </Link>
+            </Button>
           </div>
         }
       />
@@ -489,7 +395,9 @@ function ReceptionPatientsPage() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold">Patient List</h2>
-              <p className="text-sm text-muted-foreground">View, edit, or delete registered patients.</p>
+              <p className="text-sm text-muted-foreground">
+                View, edit, or delete registered patients.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -512,7 +420,6 @@ function ReceptionPatientsPage() {
                   <th className="px-4 py-3 font-medium">PID</th>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Phone</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium">Age</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
@@ -523,19 +430,35 @@ function ReceptionPatientsPage() {
                     <td className="px-4 py-3 font-medium">{patient.id}</td>
                     <td className="px-4 py-3">{patient.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{patient.phone || "-"}</td>
-                    <td className="px-4 py-3">{patient.type}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{patient.age ? `${patient.age} yrs` : "-"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {patient.age ? `${patient.age} yrs` : "-"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="inline-flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="gap-2" onClick={() => selectPatient(patient, "view")}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => selectPatient(patient, "view")}
+                        >
                           <Eye className="h-3.5 w-3.5" />
                           View
                         </Button>
-                        <Button variant="secondary" size="sm" className="gap-2" onClick={() => selectPatient(patient, "edit")}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => selectPatient(patient, "edit")}
+                        >
                           <Edit3 className="h-3.5 w-3.5" />
                           Edit
                         </Button>
-                        <Button variant="destructive" size="sm" className="gap-2" onClick={() => handleDelete(patient)}>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => handleDelete(patient)}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                           Delete
                         </Button>
@@ -545,7 +468,7 @@ function ReceptionPatientsPage() {
                 ))}
                 {patients?.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       {patientsLoading ? "Loading patients..." : "No patients found."}
                     </td>
                   </tr>
@@ -560,14 +483,24 @@ function ReceptionPatientsPage() {
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold">Patient Details</h2>
-                <p className="text-sm text-muted-foreground">Review patient information and use the actions below.</p>
+                <p className="text-sm text-muted-foreground">
+                  Review patient information and use the actions below.
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={() => selectPatient(selectedPatient, "edit")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectPatient(selectedPatient, "edit")}
+                >
                   <Edit3 className="h-4 w-4" />
                   Edit
                 </Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDelete(selectedPatient)}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDelete(selectedPatient)}
+                >
                   <Trash2 className="h-4 w-4" />
                   Delete
                 </Button>
@@ -576,127 +509,78 @@ function ReceptionPatientsPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <DetailItem label="PID" value={selectedPatient.id} />
               <DetailItem label="Name" value={selectedPatient.name} />
-              <DetailItem label="Age" value={selectedPatient.age ? `${selectedPatient.age} yrs` : "-"} />
+              <DetailItem
+                label="Age"
+                value={selectedPatient.age ? `${selectedPatient.age} yrs` : "-"}
+              />
               <DetailItem label="Gender" value={selectedPatient.gender || "-"} />
-              <DetailItem label="Type" value={selectedPatient.type || "-"} />
               <DetailItem label="Date of Birth" value={selectedPatient.dob || "-"} />
               <DetailItem label="Phone" value={selectedPatient.phone || "-"} />
               <DetailItem label="Email" value={selectedPatient.email || "-"} />
-              <DetailItem label="Address" value={selectedPatient.street ? `${selectedPatient.street}, ${selectedPatient.city}, ${selectedPatient.state}, ${selectedPatient.pinCode}` : "-"} />
-              <DetailItem label="Emergency Contact" value={selectedPatient.emergencyName ? `${selectedPatient.emergencyName} · ${selectedPatient.emergencyPhone}` : "-"} />
-              <DetailItem label="Allergies" value={[selectedPatient.drugAllergies, selectedPatient.foodAllergies, selectedPatient.environmentalAllergies].filter(Boolean).join(", ") || "-"} />
-              <DetailItem label="Chronic Diseases" value={(selectedPatient.chronicDiseases || []).join(", ") || "-"} />
+              <DetailItem
+                label="Address"
+                value={selectedPatient.address || selectedPatient.street || "-"}
+              />
+              <DetailItem label="Blood Group" value={selectedPatient.bloodGroup || "-"} />
+              <DetailItem
+                label="Emergency Contact"
+                value={
+                  selectedPatient.emergencyName
+                    ? `${selectedPatient.emergencyName} - ${selectedPatient.emergencyPhone}`
+                    : "-"
+                }
+              />
             </div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <DetailItem label="Other chronic illnesses" value={selectedPatient.otherChronic || "-"} />
-              <DetailItem label="Current Medications" value={[selectedPatient.medicationName, selectedPatient.medicationDosage, selectedPatient.medicationFrequency].filter(Boolean).join(" | ") || "-"} />
-              <DetailItem label="Surgery History" value={[selectedPatient.surgeryName, selectedPatient.surgeryYear].filter(Boolean).join(" - ") || "-"} />
-              <DetailItem label="Previous Visit Date" value={selectedPatient.previousVisitDate || "-"} />
-              <DetailItem label="Previous Doctor" value={selectedPatient.previousDoctor || "-"} />
-              <DetailItem label="Symptoms / Complaint" value={selectedPatient.previousComplaint || "-"} />
-              <DetailItem label="Diagnosis Summary" value={selectedPatient.previousDiagnosis || "-"} />
-              <DetailItem label="Treatment Given" value={selectedPatient.previousTreatment || "-"} />
-            </div>
-            <div className="mt-6 rounded-xl border border-border bg-secondary/20 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold">Medical History API</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Load, save, and delete the backend medical history record for this patient.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setMedicalHistoryRefresh((value) => value + 1)}
-                    disabled={medicalHistoryLoading}
-                  >
-                    <RefreshCcw className="h-3.5 w-3.5" />
-                    Reload
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleMedicalHistoryDelete}
-                    disabled={!medicalHistory?.id || medicalHistoryDeleting}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete History
-                  </Button>
-                </div>
-              </div>
-
-              {medicalHistoryError && (
-                <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                  {medicalHistoryError}
-                </div>
-              )}
-
-              <form onSubmit={handleMedicalHistorySubmit} className="mt-4 space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field
-                    label="Allergies"
-                    value={medicalHistoryForm.allergies}
-                    onChange={(value) => setMedicalHistoryForm((current) => ({ ...current, allergies: value }))}
-                    placeholder="No known allergies"
-                  />
-                  <Field
-                    label="Chronic Diseases"
-                    value={medicalHistoryForm.chronicDiseases}
-                    onChange={(value) =>
-                      setMedicalHistoryForm((current) => ({ ...current, chronicDiseases: value }))
-                    }
-                    placeholder="Diabetes, Hypertension"
-                  />
-                  <Field
-                    label="Current Medications"
-                    value={medicalHistoryForm.currentMedications}
-                    onChange={(value) =>
-                      setMedicalHistoryForm((current) => ({ ...current, currentMedications: value }))
-                    }
-                    placeholder="Metformin 500mg"
-                  />
-                  <Field
-                    label="Surgeries"
-                    value={medicalHistoryForm.surgeries}
-                    onChange={(value) => setMedicalHistoryForm((current) => ({ ...current, surgeries: value }))}
-                    placeholder="Appendectomy - 2010"
-                  />
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-muted-foreground">
-                    {medicalHistoryLoading
-                      ? "Loading medical history..."
-                      : medicalHistory?.id
-                        ? `Loaded record #${medicalHistory.id}`
-                        : "No medical history record found yet."}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={handleMedicalHistoryReset}>
-                      Reset
-                    </Button>
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="gap-1.5"
-                      disabled={medicalHistorySaving || medicalHistoryLoading || !resolveMedicalHistoryPatientId(selectedPatient)}
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      {medicalHistorySaving
-                        ? medicalHistory?.id
-                          ? "Replacing..."
-                          : "Saving..."
-                        : medicalHistory?.id
-                          ? "Replace History"
-                          : "Save History"}
-                    </Button>
+            <form
+              onSubmit={submitMedicalHistory}
+              className="mt-6 space-y-4 border-t border-border pt-5"
+            >
+              <div>
+                <h3 className="text-sm font-semibold">Medical History</h3>
+                {medicalHistoryError && (
+                  <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                    {medicalHistoryError}
                   </div>
-                </div>
-              </form>
-            </div>
+                )}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field
+                  label="Patient ID"
+                  value={medicalHistoryForm.patientId}
+                  onChange={(value) => updateMedicalHistory("patientId", digitsOnly(value))}
+                  inputMode="numeric"
+                  dataKind="numbers"
+                />
+                <Field
+                  label="Allergies"
+                  value={medicalHistoryForm.allergies}
+                  onChange={(value) => updateMedicalHistory("allergies", value)}
+                />
+                <Field
+                  label="Chronic Diseases"
+                  value={medicalHistoryForm.chronicDiseases}
+                  onChange={(value) => updateMedicalHistory("chronicDiseases", value)}
+                />
+                <Field
+                  label="Current Medications"
+                  value={medicalHistoryForm.currentMedications}
+                  onChange={(value) => updateMedicalHistory("currentMedications", value)}
+                />
+                <Field
+                  label="Surgeries"
+                  value={medicalHistoryForm.surgeries}
+                  onChange={(value) => updateMedicalHistory("surgeries", value)}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={medicalHistorySaving || medicalHistoryLoading}
+                className="gap-1.5"
+              >
+                <Save className="h-4 w-4" />
+                {medicalHistorySaving ? "Saving..." : "Save Medical History"}
+              </Button>
+            </form>
           </section>
         )}
 
@@ -704,7 +588,9 @@ function ReceptionPatientsPage() {
           <section className="rounded-xl border border-border bg-card p-5 shadow-card">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-base font-semibold">{isEditing ? "Edit Patient" : "Add Patient"}</h2>
+                <h2 className="text-base font-semibold">
+                  {isEditing ? "Edit Patient" : "Add Patient"}
+                </h2>
                 <p className="text-sm text-muted-foreground">
                   {isEditing
                     ? `Update the patient record for ${selectedPatient?.name || "selected patient"}.`
@@ -716,10 +602,19 @@ function ReceptionPatientsPage() {
               </Button>
             </div>
             <form onSubmit={submit} className="space-y-5">
-              {formSectionFields({ form, update, toggleChronic })}
-              <Button disabled={saving || patientsLoading} className="w-full gap-1.5 bg-primary text-primary-foreground">
+              {formSectionFields({ form, update })}
+              <Button
+                disabled={saving || patientsLoading}
+                className="w-full gap-1.5 bg-primary text-primary-foreground"
+              >
                 <Plus className="h-4 w-4" />
-                {saving ? (isEditing ? "Updating patient..." : "Saving patient...") : isEditing ? "Update Patient" : "Save Patient and Continue to Booking"}
+                {saving
+                  ? isEditing
+                    ? "Updating patient..."
+                    : "Saving patient..."
+                  : isEditing
+                    ? "Update Patient"
+                    : "Save Patient and Continue to Booking"}
                 <CalendarPlus className="h-4 w-4" />
               </Button>
             </form>
@@ -730,16 +625,10 @@ function ReceptionPatientsPage() {
   );
 }
 
-function formSectionFields({ form, update, toggleChronic }) {
+function formSectionFields({ form, update }) {
   return (
     <>
       <FormSection title="Basic Patient Information">
-        <Field
-          label="Patient ID (PID)"
-          value={form.id}
-          onChange={(value) => update("id", alphaNumericOnly(value).toUpperCase())}
-          dataKind="alphanumeric"
-        />
         <Field
           label="Full Name"
           value={form.name}
@@ -766,11 +655,11 @@ function formSectionFields({ form, update, toggleChronic }) {
           onChange={(value) => update("gender", value)}
           options={["Female", "Male", "Other"]}
         />
-        <SelectField
-          label="Patient Type"
-          value={form.type}
-          onChange={(value) => update("type", value)}
-          options={["OPD", "IPD"]}
+        <Field
+          label="Blood Group"
+          value={form.bloodGroup}
+          onChange={(value) => update("bloodGroup", value.toUpperCase())}
+          placeholder="O+"
         />
       </FormSection>
       <FormSection title="Contact Information">
@@ -791,29 +680,9 @@ function formSectionFields({ form, update, toggleChronic }) {
           pattern={EMAIL_INPUT_PATTERN}
         />
         <Field
-          label="Street Address"
-          value={form.street}
-          onChange={(value) => update("street", value)}
-        />
-        <Field
-          label="City"
-          value={form.city}
-          onChange={(value) => update("city", lettersOnly(value))}
-          dataKind="letters"
-        />
-        <Field
-          label="State"
-          value={form.state}
-          onChange={(value) => update("state", lettersOnly(value))}
-          dataKind="letters"
-        />
-        <Field
-          label="PIN Code"
-          value={form.pinCode}
-          onChange={(value) => update("pinCode", digitsOnly(value, 6))}
-          inputMode="numeric"
-          maxLength={6}
-          dataKind="numbers"
+          label="Address"
+          value={form.address}
+          onChange={(value) => update("address", value)}
         />
       </FormSection>
       <FormSection title="Emergency Contact Information">
@@ -833,118 +702,6 @@ function formSectionFields({ form, update, toggleChronic }) {
           dataKind="numbers"
         />
       </FormSection>
-      <FormSection title="Medical Information">
-        <Field
-          label="Drug Allergies"
-          value={form.drugAllergies}
-          onChange={(value) => update("drugAllergies", value)}
-          placeholder="Penicillin"
-        />
-        <Field
-          label="Food Allergies"
-          value={form.foodAllergies}
-          onChange={(value) => update("foodAllergies", value)}
-          placeholder="Peanuts"
-        />
-        <Field
-          label="Environmental Allergies"
-          value={form.environmentalAllergies}
-          onChange={(value) => update("environmentalAllergies", value)}
-          placeholder="Pollen"
-        />
-        <div className="md:col-span-2">
-          <label className="mb-2 block text-sm font-medium">
-            Chronic Diseases / Existing Conditions
-          </label>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {chronicOptions.map((condition) => (
-              <label
-                key={condition}
-                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={form.chronicDiseases.includes(condition)}
-                  onChange={() => toggleChronic(condition)}
-                />
-                {condition}
-              </label>
-            ))}
-          </div>
-        </div>
-        <Field
-          label="Other chronic illnesses"
-          value={form.otherChronic}
-          onChange={(value) => update("otherChronic", value)}
-        />
-      </FormSection>
-      <FormSection title="Current Medications">
-        <Field
-          label="Medicine Name"
-          value={form.medicationName}
-          onChange={(value) => update("medicationName", value)}
-          placeholder="Amlodipine"
-        />
-        <Field
-          label="Dosage"
-          value={form.medicationDosage}
-          onChange={(value) => update("medicationDosage", value)}
-          placeholder="5mg"
-        />
-        <Field
-          label="Frequency"
-          value={form.medicationFrequency}
-          onChange={(value) => update("medicationFrequency", value)}
-          placeholder="Once daily"
-        />
-      </FormSection>
-      <FormSection title="Surgery History">
-        <Field
-          label="Surgery Name"
-          value={form.surgeryName}
-          onChange={(value) => update("surgeryName", lettersOnly(value))}
-          placeholder="Appendectomy"
-          dataKind="letters"
-        />
-        <Field
-          label="Surgery Year"
-          value={form.surgeryYear}
-          onChange={(value) => update("surgeryYear", digitsOnly(value, 4))}
-          inputMode="numeric"
-          maxLength={4}
-          placeholder="2010"
-          dataKind="numbers"
-        />
-      </FormSection>
-      <FormSection title="Previous Visits">
-        <Field
-          label="Visit Date"
-          type="date"
-          value={form.previousVisitDate}
-          onChange={(value) => update("previousVisitDate", value)}
-        />
-        <Field
-          label="Consulting Doctor Name"
-          value={form.previousDoctor}
-          onChange={(value) => update("previousDoctor", lettersOnly(value))}
-          dataKind="letters"
-        />
-        <TextAreaField
-          label="Symptoms / Complaint"
-          value={form.previousComplaint}
-          onChange={(value) => update("previousComplaint", value)}
-        />
-        <TextAreaField
-          label="Diagnosis Summary"
-          value={form.previousDiagnosis}
-          onChange={(value) => update("previousDiagnosis", value)}
-        />
-        <TextAreaField
-          label="Treatment Given"
-          value={form.previousTreatment}
-          onChange={(value) => update("previousTreatment", value)}
-        />
-      </FormSection>
     </>
   );
 }
@@ -959,59 +716,17 @@ function DetailItem({ label, value }) {
 }
 
 function toPatientPayload(patient) {
-  const previousVisits =
-    patient.previousVisitDate ||
-    patient.previousDoctor ||
-    patient.previousComplaint ||
-    patient.previousDiagnosis ||
-    patient.previousTreatment
-      ? [
-          {
-            visitDate: toIsoDate(patient.previousVisitDate),
-            doctorName: patient.previousDoctor,
-            symptoms: patient.previousComplaint,
-            diagnosisSummary: patient.previousDiagnosis,
-            treatmentGiven: patient.previousTreatment,
-          },
-        ]
-      : [];
-
   return {
     name: patient.name,
     phone: patient.phone,
     age: Number(patient.age),
     gender: patient.gender,
     email: patient.email,
-    address: [patient.street, patient.city, patient.state, patient.pinCode]
-      .filter(Boolean)
-      .join(", "),
+    address: patient.address,
     bloodGroup: patient.bloodGroup,
     dateOfBirth: toIsoDate(patient.dob),
     emergencyContactName: patient.emergencyName,
     emergencyContactPhone: patient.emergencyPhone,
-    patientType: patient.type,
-    mobileNumber: patient.phone,
-    streetAddress: patient.street,
-    city: patient.city,
-    state: patient.state,
-    pinCode: patient.pinCode,
-    emergencyContactMobileNumber: patient.emergencyPhone,
-    allergies: [patient.drugAllergies, patient.foodAllergies, patient.environmentalAllergies]
-      .filter(Boolean)
-      .join(", "),
-    drugAllergies: patient.drugAllergies,
-    foodAllergies: patient.foodAllergies,
-    environmentalAllergies: patient.environmentalAllergies,
-    chronicDiseases: patient.chronicDiseases.join(", "),
-    currentMedications: [
-      patient.medicationName,
-      patient.medicationDosage,
-      patient.medicationFrequency,
-    ]
-      .filter(Boolean)
-      .join(" | "),
-    surgeryHistory: [patient.surgeryName, patient.surgeryYear].filter(Boolean).join(" - "),
-    previousVisits,
   };
 }
 
@@ -1043,7 +758,6 @@ function Field({
     const rawValue = event.target.value;
     if (dataKind === "letters") return onChange(lettersOnly(rawValue));
     if (dataKind === "numbers") return onChange(digitsOnly(rawValue, inputProps.maxLength ?? 100));
-    if (dataKind === "alphanumeric") return onChange(alphaNumericOnly(rawValue));
     return onChange(rawValue);
   };
 
@@ -1057,20 +771,6 @@ function Field({
         {...inputProps}
         className="h-11 w-full rounded-lg border border-input bg-card px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
         placeholder={placeholder || label}
-      />
-    </div>
-  );
-}
-
-function TextAreaField({ label, value, onChange }) {
-  return (
-    <div className="md:col-span-2">
-      <label className="mb-1.5 block text-sm font-medium">{label}</label>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-20 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-        placeholder={label}
       />
     </div>
   );
