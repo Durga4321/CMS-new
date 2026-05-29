@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CalendarPlus, Plus, Eye, Edit3, Trash2, RefreshCcw } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Plus, Eye, Edit3, Trash2, RefreshCcw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -28,6 +28,58 @@ export const Route = createFileRoute("/_app/reception/patients")({
   head: () => ({ meta: [{ title: "Patients - Medisuite" }] }),
 });
 
+const EMPTY_MEDICAL_HISTORY_FORM = {
+  allergies: "",
+  chronicDiseases: "",
+  currentMedications: "",
+  surgeries: "",
+};
+
+function resolveMedicalHistoryPatientId(patient) {
+  const rawValue = patient?.patientId ?? patient?.id ?? "";
+  const numericValue = String(rawValue).match(/\d+/)?.[0] ?? "";
+  const patientId = Number(numericValue || rawValue);
+  return Number.isFinite(patientId) ? patientId : null;
+}
+
+function buildMedicalHistoryForm(patient, record = null) {
+  const medicalHistory = getPayload(record) ?? record ?? {};
+  return {
+    allergies:
+      medicalHistory.allergies ??
+      [patient?.drugAllergies, patient?.foodAllergies, patient?.environmentalAllergies]
+        .filter(Boolean)
+        .join(", "),
+    chronicDiseases:
+      medicalHistory.chronicDiseases ??
+      [...(Array.isArray(patient?.chronicDiseases) ? patient.chronicDiseases : []), patient?.otherChronic]
+        .filter(Boolean)
+        .join(", "),
+    currentMedications:
+      medicalHistory.currentMedications ??
+      [patient?.medicationName, patient?.medicationDosage, patient?.medicationFrequency]
+        .filter(Boolean)
+        .join(" | "),
+    surgeries:
+      medicalHistory.surgeries ??
+      [patient?.surgeryName, patient?.surgeryYear].filter(Boolean).join(" - "),
+  };
+}
+
+function normalizeMedicalHistoryRecord(record) {
+  const medicalHistory = getPayload(record) ?? record ?? {};
+  return {
+    id: medicalHistory.id ?? medicalHistory.medicalHistoryId ?? "",
+    patientId: medicalHistory.patientId ?? medicalHistory.patient_id ?? "",
+    allergies: medicalHistory.allergies ?? "",
+    chronicDiseases: medicalHistory.chronicDiseases ?? medicalHistory.chronic_diseases ?? "",
+    currentMedications:
+      medicalHistory.currentMedications ?? medicalHistory.current_medications ?? "",
+    surgeries: medicalHistory.surgeries ?? medicalHistory.surgeryHistory ?? "",
+    createdAt: medicalHistory.createdAt ?? medicalHistory.created_at ?? "",
+  };
+}
+
 function ReceptionPatientsPage() {
   const navigate = useNavigate();
   const receptionStore = useReceptionStore();
@@ -44,6 +96,13 @@ function ReceptionPatientsPage() {
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState("list");
   const [selectedPatientId, setSelectedPatientId] = useState(null);
+  const [medicalHistory, setMedicalHistory] = useState(null);
+  const [medicalHistoryForm, setMedicalHistoryForm] = useState(EMPTY_MEDICAL_HISTORY_FORM);
+  const [medicalHistoryLoading, setMedicalHistoryLoading] = useState(false);
+  const [medicalHistorySaving, setMedicalHistorySaving] = useState(false);
+  const [medicalHistoryDeleting, setMedicalHistoryDeleting] = useState(false);
+  const [medicalHistoryError, setMedicalHistoryError] = useState("");
+  const [medicalHistoryRefresh, setMedicalHistoryRefresh] = useState(0);
 
   useEffect(() => {
     if (mode === "create") {
@@ -56,6 +115,57 @@ function ReceptionPatientsPage() {
   const selectedPatient = patients?.find((item) => item.id === selectedPatientId) ?? null;
   const isEditing = mode === "edit";
   const isViewing = mode === "view" && selectedPatient;
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isViewing || !selectedPatient) {
+      setMedicalHistory(null);
+      setMedicalHistoryForm(EMPTY_MEDICAL_HISTORY_FORM);
+      setMedicalHistoryLoading(false);
+      setMedicalHistoryError("");
+      return () => {
+        active = false;
+      };
+    }
+
+    const nextForm = buildMedicalHistoryForm(selectedPatient);
+    const patientId = resolveMedicalHistoryPatientId(selectedPatient);
+
+    setMedicalHistory(null);
+    setMedicalHistoryForm(nextForm);
+    setMedicalHistoryError("");
+
+    if (!patientId) {
+      setMedicalHistoryLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setMedicalHistoryLoading(true);
+
+    (async () => {
+      try {
+        const response = await api.medicalHistory.get(patientId);
+        if (!active) return;
+        const record = normalizeMedicalHistoryRecord(response);
+        setMedicalHistory(record);
+        setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient, record));
+      } catch (err) {
+        if (!active) return;
+        if (err?.status !== 404) {
+          setMedicalHistoryError(err?.message ?? "Unable to load medical history");
+        }
+      } finally {
+        if (active) setMedicalHistoryLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [isViewing, selectedPatient?.id, selectedPatient?.patientId, medicalHistoryRefresh]);
 
   const mirrorPatient = (patient) => {
     receptionStore.setReceptionState((current) => {
@@ -149,6 +259,79 @@ function ReceptionPatientsPage() {
       return;
     }
     setMode("list");
+  };
+
+  const handleMedicalHistoryReset = () => {
+    setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient, medicalHistory));
+  };
+
+  const handleMedicalHistorySubmit = async (event) => {
+    event.preventDefault();
+    const patientId = resolveMedicalHistoryPatientId(selectedPatient);
+
+    if (!patientId) {
+      toast.error("Selected patient does not have a numeric patient ID.");
+      return;
+    }
+
+    const payload = {
+      patientId,
+      allergies: medicalHistoryForm.allergies.trim(),
+      chronicDiseases: medicalHistoryForm.chronicDiseases.trim(),
+      currentMedications: medicalHistoryForm.currentMedications.trim(),
+      surgeries: medicalHistoryForm.surgeries.trim(),
+    };
+
+    if (medicalHistory?.id) {
+      const shouldReplace = window.confirm(
+        `Replace the existing medical history record for ${selectedPatient?.name || "this patient"}?`,
+      );
+
+      if (!shouldReplace) return;
+    }
+
+    setMedicalHistorySaving(true);
+    setMedicalHistoryError("");
+
+    try {
+      if (medicalHistory?.id) {
+        await api.medicalHistory.remove(medicalHistory.id);
+      }
+      await api.medicalHistory.create(payload);
+      setMedicalHistoryRefresh((value) => value + 1);
+      toast.success(medicalHistory?.id ? "Medical history replaced successfully" : "Medical history saved successfully");
+    } catch (err) {
+      setMedicalHistoryError(err?.message ?? "Unable to save medical history");
+      toast.error(err?.message ?? "Unable to save medical history");
+    } finally {
+      setMedicalHistorySaving(false);
+    }
+  };
+
+  const handleMedicalHistoryDelete = async () => {
+    if (!medicalHistory?.id) return;
+
+    const confirmed = window.confirm(
+      `Delete the medical history record for ${selectedPatient?.name || "this patient"}?`,
+    );
+
+    if (!confirmed) return;
+
+    setMedicalHistoryDeleting(true);
+    setMedicalHistoryError("");
+
+    try {
+      await api.medicalHistory.remove(medicalHistory.id);
+      setMedicalHistory(null);
+      setMedicalHistoryForm(buildMedicalHistoryForm(selectedPatient));
+      setMedicalHistoryRefresh((value) => value + 1);
+      toast.success("Medical history deleted successfully");
+    } catch (err) {
+      setMedicalHistoryError(err?.message ?? "Unable to delete medical history");
+      toast.error(err?.message ?? "Unable to delete medical history");
+    } finally {
+      setMedicalHistoryDeleting(false);
+    }
   };
 
   const handleDelete = async (patient) => {
@@ -413,6 +596,106 @@ function ReceptionPatientsPage() {
               <DetailItem label="Symptoms / Complaint" value={selectedPatient.previousComplaint || "-"} />
               <DetailItem label="Diagnosis Summary" value={selectedPatient.previousDiagnosis || "-"} />
               <DetailItem label="Treatment Given" value={selectedPatient.previousTreatment || "-"} />
+            </div>
+            <div className="mt-6 rounded-xl border border-border bg-secondary/20 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Medical History API</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Load, save, and delete the backend medical history record for this patient.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMedicalHistoryRefresh((value) => value + 1)}
+                    disabled={medicalHistoryLoading}
+                  >
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                    Reload
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleMedicalHistoryDelete}
+                    disabled={!medicalHistory?.id || medicalHistoryDeleting}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete History
+                  </Button>
+                </div>
+              </div>
+
+              {medicalHistoryError && (
+                <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                  {medicalHistoryError}
+                </div>
+              )}
+
+              <form onSubmit={handleMedicalHistorySubmit} className="mt-4 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field
+                    label="Allergies"
+                    value={medicalHistoryForm.allergies}
+                    onChange={(value) => setMedicalHistoryForm((current) => ({ ...current, allergies: value }))}
+                    placeholder="No known allergies"
+                  />
+                  <Field
+                    label="Chronic Diseases"
+                    value={medicalHistoryForm.chronicDiseases}
+                    onChange={(value) =>
+                      setMedicalHistoryForm((current) => ({ ...current, chronicDiseases: value }))
+                    }
+                    placeholder="Diabetes, Hypertension"
+                  />
+                  <Field
+                    label="Current Medications"
+                    value={medicalHistoryForm.currentMedications}
+                    onChange={(value) =>
+                      setMedicalHistoryForm((current) => ({ ...current, currentMedications: value }))
+                    }
+                    placeholder="Metformin 500mg"
+                  />
+                  <Field
+                    label="Surgeries"
+                    value={medicalHistoryForm.surgeries}
+                    onChange={(value) => setMedicalHistoryForm((current) => ({ ...current, surgeries: value }))}
+                    placeholder="Appendectomy - 2010"
+                  />
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {medicalHistoryLoading
+                      ? "Loading medical history..."
+                      : medicalHistory?.id
+                        ? `Loaded record #${medicalHistory.id}`
+                        : "No medical history record found yet."}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={handleMedicalHistoryReset}>
+                      Reset
+                    </Button>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={medicalHistorySaving || medicalHistoryLoading || !resolveMedicalHistoryPatientId(selectedPatient)}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      {medicalHistorySaving
+                        ? medicalHistory?.id
+                          ? "Replacing..."
+                          : "Saving..."
+                        : medicalHistory?.id
+                          ? "Replace History"
+                          : "Save History"}
+                    </Button>
+                  </div>
+                </div>
+              </form>
             </div>
           </section>
         )}

@@ -1,5 +1,12 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || "";
-export const AUTH_API_BASE_URL = API_BASE_URL;
+import { SUPER_ADMIN_EMAIL } from "@/lib/auth-routing";
+
+const SUPER_ADMIN_API_BASE_URL =
+  import.meta.env.VITE_SUPER_ADMIN_API_BASE_URL?.trim() ||
+  "https://irritant-kilobyte-until.ngrok-free.dev";
+const APP_API_BASE_URL = import.meta.env.VITE_APP_API_BASE_URL?.trim() || "https://posological-bea-subacademically.ngrok-free.dev";
+
+export const API_BASE_URL = APP_API_BASE_URL;
+export const AUTH_API_BASE_URL = APP_API_BASE_URL;
 const NEW_API_BASE_URL = "https://posological-bea-subacademically.ngrok-free.dev";
 export const APPOINTMENT_API_BASE_URL =
   import.meta.env.VITE_APPOINTMENT_API_BASE_URL?.trim() || NEW_API_BASE_URL;
@@ -24,6 +31,14 @@ export function getAuthToken() {
 
 export function hasAuthSession() {
   return Boolean(getAuthToken());
+}
+
+function getSessionBaseUrl() {
+  const user = getAuthUser();
+  const email = String(user?.email ?? user?.Email ?? "").trim().toLowerCase();
+  const role = String(user?.role ?? user?.Role ?? "").trim().toLowerCase();
+  const isSuperAdminSession = email === SUPER_ADMIN_EMAIL || role.includes("superadmin");
+  return isSuperAdminSession ? SUPER_ADMIN_API_BASE_URL || APP_API_BASE_URL : APP_API_BASE_URL;
 }
 
 export function setAuthToken(token, remember = true) {
@@ -321,7 +336,7 @@ export async function apiRequest(path, options = {}) {
 
   if (token) requestHeaders.Authorization = `Bearer ${token}`;
 
-  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE_URL}${path}`;
+  const url = /^https?:\/\//i.test(path) ? path : `${getSessionBaseUrl()}${path}`;
   const response = await fetch(url, {
     ...init,
     headers: requestHeaders,
@@ -461,25 +476,25 @@ export const api = {
   },
   auth: {
     superAdminLogin: (data) =>
-      apiRequest(`${AUTH_API_BASE_URL}/api/auth/super-admin-login`, {
+      apiRequest(`${SUPER_ADMIN_API_BASE_URL || APP_API_BASE_URL}/api/auth/super-admin-login`, {
         ...json("POST", data),
         auth: false,
       }),
     register: (data) =>
-      apiRequest(`${AUTH_API_BASE_URL}/api/auth/register`, { ...json("POST", data), auth: false }),
-    login: (data) => apiRequest(`${AUTH_API_BASE_URL}/api/auth/login`, { ...json("POST", data), auth: false }),
+      apiRequest(`${APP_API_BASE_URL}/api/Auth/register`, { ...json("POST", data), auth: false }),
+    login: (data) => apiRequest(`${APP_API_BASE_URL}/api/auth/login`, { ...json("POST", data), auth: false }),
     forgotPassword: (data) =>
-      apiRequest(`${AUTH_API_BASE_URL}/api/auth/forgot-password`, {
+      apiRequest(`${APP_API_BASE_URL}/api/auth/forgot-password`, {
         ...json("POST", data),
         auth: false,
       }),
     verifyOtp: (data) =>
-      apiRequest(`${AUTH_API_BASE_URL}/api/auth/verify-otp`, {
+      apiRequest(`${APP_API_BASE_URL}/api/auth/verify-otp`, {
         ...json("POST", data),
         auth: false,
       }),
     resetPassword: (data) =>
-      apiRequest(`${AUTH_API_BASE_URL}/api/auth/reset-password`, {
+      apiRequest(`${APP_API_BASE_URL}/api/auth/reset-password`, {
         ...json("POST", data),
         auth: false,
       }),
@@ -525,6 +540,11 @@ export const api = {
       apiRequest(`${PATIENT_API_BASE_URL}/api/Patient/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+  },
+  medicalHistory: {
+    get: (patientId) => apiRequest(`/api/MedicalHistory/${encodeURIComponent(patientId)}`),
+    create: (data) => apiRequest("/api/MedicalHistory", json("POST", data)),
+    remove: (id) => apiRequest(`/api/MedicalHistory/${encodeURIComponent(id)}`, { method: "DELETE" }),
   },
   appointments: {
     list: () => apiRequest(`${APPOINTMENT_API_BASE_URL}/api/Appointment`),

@@ -163,6 +163,65 @@ function BillingPage() {
 
   const latestBill = appointmentBill ?? bills[0];
 
+  const downloadInvoicePdf = (bill) => {
+    if (!bill) return;
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Invoice ${bill.id}</title>
+          <style>
+            body{ font-family: Arial, Helvetica, sans-serif; padding:20px; }
+            .header{ display:flex; justify-content:space-between; align-items:center }
+            .box{ border:1px solid #e5e7eb; padding:16px; border-radius:8px }
+            .rows{ margin-top:16px }
+            .row{ display:flex; justify-content:space-between; padding:6px 0 }
+            .total{ font-weight:700; font-size:18px }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h2>Medisuite</h2>
+              <div>Invoice: ${bill.id}</div>
+            </div>
+            <div>
+              <div>${bill.patient ?? ''}</div>
+              <div>${bill.patientId ?? ''}</div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="rows">
+              <div class="row"><div>Consultation</div><div>Rs ${bill.consultation ?? 0}</div></div>
+              <div class="row"><div>Medicines</div><div>Rs ${bill.medicines ?? 0}</div></div>
+              <div class="row"><div>Lab</div><div>Rs ${bill.lab ?? 0}</div></div>
+              <div class="row total"><div>Total</div><div>Rs ${bill.total ?? 0}</div></div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const w = window.open('', '_blank');
+    if (!w) {
+      toast.error('Unable to open print window. Check popup settings.');
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    // Give the browser a moment to render then open print dialog
+    setTimeout(() => {
+      try {
+        w.focus();
+        w.print();
+        // don't auto-close to allow user to complete print/save
+      } catch (e) {
+        // ignore
+      }
+    }, 300);
+  };
+
   return (
     <>
       <PageHeader
@@ -259,7 +318,14 @@ function BillingPage() {
                   {latestBill?.id ?? "Pending invoice"}
                 </div>
               </div>
-              <FileText className="h-5 w-5 text-primary" />
+              <button
+                type="button"
+                onClick={() => downloadInvoicePdf(latestBill)}
+                className="-m-2 p-2"
+                aria-label="Download invoice as PDF"
+              >
+                <FileText className="h-5 w-5 text-primary" />
+              </button>
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Status</span>

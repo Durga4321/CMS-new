@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect, useNavigate, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Stethoscope,
   Mail,
@@ -38,7 +38,6 @@ import {
   hasAuthSession,
 } from "@/lib/api";
 import {
-  alphaNumericOnly,
   cleanEmail,
   digitsOnly,
   EMAIL_INPUT_PATTERN,
@@ -82,6 +81,7 @@ const roles = [
 ];
 
 const SUPER_ADMIN_FALLBACK_NAME = "DP";
+const LOGIN_DRAFT_STORAGE_KEY = "clinic_login_draft";
 
 function LoginPage() {
   const nav = useNavigate();
@@ -91,13 +91,17 @@ function LoginPage() {
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [account, setAccount] = useState({
+  const [registerForm, setRegisterForm] = useState({
     firstName: "",
     lastName: "",
     username: "",
     role: "",
     phone: "",
     confirmPassword: "",
+    hospitalName: "",
+    hospitalAddress: "",
+    hospitalPhone: "",
+    hospitalEmail: "",
     terms: false,
   });
   const [errors, setErrors] = useState({});
@@ -106,8 +110,28 @@ function LoginPage() {
 
   const isRegister = mode === "register";
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const draft = readLoginDraft();
+    if (!draft) return;
+    setEmail(draft.email ?? "");
+    setPassword(draft.password ?? "");
+    if (typeof draft.rememberMe === "boolean") {
+      setRememberMe(draft.rememberMe);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isRegister) return;
+    if (!rememberMe) {
+      clearLoginDraft();
+      return;
+    }
+    writeLoginDraft({ email, password, rememberMe });
+  }, [email, password, rememberMe, isRegister]);
+
   const updateAccount = (field, value) => {
-    setAccount((current) => ({ ...current, [field]: value }));
+    setRegisterForm((current) => ({ ...current, [field]: value }));
   };
 
   const switchMode = (nextMode) => {
@@ -116,6 +140,19 @@ function LoginPage() {
     setPassword("");
     setShowPwd(false);
     setShowConfirmPwd(false);
+    setRegisterForm({
+      firstName: "",
+      lastName: "",
+      username: "",
+      role: "",
+      phone: "",
+      confirmPassword: "",
+      hospitalName: "",
+      hospitalAddress: "",
+      hospitalPhone: "",
+      hospitalEmail: "",
+      terms: false,
+    });
   };
 
   const submit = async (e) => {
@@ -253,42 +290,97 @@ function LoginPage() {
   const register = async () => {
     const errs = {};
     const normalizedEmail = cleanEmail(email);
-    const normalizedPhone = digitsOnly(account.phone);
+    const normalizedPhone = digitsOnly(registerForm.phone);
+    const normalizedHospitalPhone = digitsOnly(registerForm.hospitalPhone);
+    const normalizedHospitalEmail = cleanEmail(registerForm.hospitalEmail);
     if (normalizedEmail !== email) setEmail(normalizedEmail);
-    if (normalizedPhone !== account.phone) updateAccount("phone", normalizedPhone);
-    const firstNameError = validateName(account.firstName, "First name");
-    const lastNameError = validateName(account.lastName, "Last name");
+    if (normalizedPhone !== registerForm.phone) updateAccount("phone", normalizedPhone);
+    if (normalizedHospitalPhone !== registerForm.hospitalPhone) updateAccount("hospitalPhone", normalizedHospitalPhone);
+    if (normalizedHospitalEmail !== registerForm.hospitalEmail) updateAccount("hospitalEmail", normalizedHospitalEmail);
+
+    const firstNameError = validateName(registerForm.firstName, "First name");
+    const lastNameError = validateName(registerForm.lastName, "Last name");
     if (firstNameError) errs.firstName = firstNameError;
     if (lastNameError) errs.lastName = lastNameError;
-    if (!account.username.trim()) errs.username = "Username is required";
-    if (!account.role) errs.role = "Select a role";
-    const phoneError = validatePhone(normalizedPhone);
+    if (!registerForm.username.trim()) errs.username = "Username is required";
+    if (!registerForm.role) errs.role = "Select a role";
+    const phoneError = validatePhone(normalizedPhone, "Phone");
     if (phoneError) errs.phone = phoneError;
     const emailError = validateEmail(normalizedEmail);
     if (emailError) errs.email = emailError;
     if (normalizedEmail === SUPER_ADMIN_EMAIL) {
       errs.email = "Super admin already exists. Please sign in with the backend credentials.";
     }
-    if (normalizeRole(account.role) === "superadmin") {
-      errs.role = "Super admin accounts cannot be created from public registration";
+    const isAdminRole = normalizeRole(registerForm.role) === "admin";
+    if (isAdminRole) {
+      const hospitalNameError = validateName(registerForm.hospitalName, "Hospital name");
+      if (hospitalNameError) errs.hospitalName = hospitalNameError;
+      if (!registerForm.hospitalAddress.trim()) errs.hospitalAddress = "Hospital address is required";
+      const hospitalPhoneError = validatePhone(normalizedHospitalPhone, "Hospital phone");
+      if (hospitalPhoneError) errs.hospitalPhone = hospitalPhoneError;
+      const hospitalEmailError = validateEmail(normalizedHospitalEmail, "Hospital email");
+      if (hospitalEmailError) errs.hospitalEmail = hospitalEmailError;
     }
     if (getRegisteredUser(normalizedEmail)) {
       errs.email = "Email address already exists";
     }
-    const passwordError = validatePassword(password);
+    const passwordError = validatePassword(password, "Password");
     if (passwordError) errs.password = passwordError;
-    if (account.confirmPassword !== password) errs.confirmPassword = "Passwords do not match";
-    if (!account.terms) errs.terms = "Please agree to terms and conditions";
+    if (registerForm.confirmPassword !== password) errs.confirmPassword = "Passwords do not match";
+    if (!registerForm.terms) errs.terms = "Please agree to terms and conditions";
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
     setLoading(true);
     try {
+      const registeredRole = normalizeRole(registerForm.role) || registerForm.role.toLowerCase();
+      if (isAdminRole) {
+        const payload = {
+          name: `${registerForm.firstName.trim()} ${registerForm.lastName.trim()}`.trim(),
+          mobileNumber: normalizedPhone,
+          email: normalizedEmail,
+          password,
+          role: "Admin",
+          hospitalName: registerForm.hospitalName.trim(),
+          hospitalAddress: registerForm.hospitalAddress.trim(),
+          hospitalPhone: normalizedHospitalPhone,
+          hospitalEmail: normalizedHospitalEmail,
+        };
+        const response = await api.auth.register(payload);
+        const token = readToken(response);
+        const savedUser = readUser(response);
+        if (token) {
+          const authUser = {
+            ...(savedUser && typeof savedUser === "object" ? savedUser : {}),
+            email: readField(savedUser, ["email", "Email", "username", "Username"], normalizedEmail),
+            role: normalizeRole(readRole(response, token), normalizedEmail) || "admin",
+            name: readField(
+              savedUser,
+              ["name", "Name", "fullName", "FullName", "displayName"],
+              `${registerForm.firstName.trim()} ${registerForm.lastName.trim()}`.trim(),
+            ),
+            mobileNumber: normalizedPhone,
+            username: registerForm.username.trim(),
+            hospitalName: registerForm.hospitalName.trim(),
+            hospitalAddress: registerForm.hospitalAddress.trim(),
+            hospitalPhone: normalizedHospitalPhone,
+            hospitalEmail: normalizedHospitalEmail,
+          };
+          setAuthToken(token, rememberMe);
+          setAuthUser(authUser, rememberMe);
+          markUserActive(authUser);
+          recordLoginHistory(authUser);
+          toast.success("Account created. Redirecting to dashboard...");
+          nav({ to: resolvePostLoginPath(search.redirect, authUser.role) });
+          return;
+        }
+      }
+
       const registeredUser = {
         email: normalizedEmail,
-        username: account.username,
-        role: account.role.toLowerCase(),
-        name: `${account.firstName} ${account.lastName}`.trim(),
+        username: registerForm.username.trim(),
+        role: registeredRole,
+        name: `${registerForm.firstName.trim()} ${registerForm.lastName.trim()}`.trim(),
         phone: normalizedPhone,
         password,
       };
@@ -298,21 +390,12 @@ function LoginPage() {
         user: registeredUser.name || registeredUser.username,
         email: registeredUser.email,
         role: registeredUser.role,
-        action: "Registered account",
+        action: isAdminRole ? "Registered admin account" : "Registered account",
         module: "Auth",
       });
       toast.success("Account created. Please sign in.");
       setMode("login");
       setPassword("");
-      setAccount({
-        firstName: "",
-        lastName: "",
-        username: "",
-        role: "",
-        phone: "",
-        confirmPassword: "",
-        terms: false,
-      });
     } catch (err) {
       toast.error(err?.message ?? "Unable to create account");
     } finally {
@@ -375,7 +458,7 @@ function LoginPage() {
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             {isRegister
-              ? "Create a new account to access the dashboard and manage your workspace."
+              ? "Create your account and reveal the hospital fields when Admin is selected."
               : "Welcome back. Enter your credentials to continue."}
           </p>
 
@@ -385,7 +468,7 @@ function LoginPage() {
                 <TextField
                   label="First Name"
                   icon={User}
-                  value={account.firstName}
+                  value={registerForm.firstName}
                   onChange={(value) => {
                     updateAccount("firstName", lettersOnly(value));
                     clearFieldError(setErrors, "firstName");
@@ -396,7 +479,7 @@ function LoginPage() {
                 <TextField
                   label="Last Name"
                   icon={User}
-                  value={account.lastName}
+                  value={registerForm.lastName}
                   onChange={(value) => {
                     updateAccount("lastName", lettersOnly(value));
                     clearFieldError(setErrors, "lastName");
@@ -407,9 +490,9 @@ function LoginPage() {
                 <TextField
                   label="Username"
                   icon={User}
-                  value={account.username}
+                  value={registerForm.username}
                   onChange={(value) => {
-                    updateAccount("username", alphaNumericOnly(value));
+                    updateAccount("username", value);
                     clearFieldError(setErrors, "username");
                   }}
                   placeholder="johndoe"
@@ -418,8 +501,11 @@ function LoginPage() {
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Role</label>
                   <Select
-                    value={account.role}
-                    onValueChange={(value) => updateAccount("role", value)}
+                    value={registerForm.role}
+                    onValueChange={(value) => {
+                      updateAccount("role", value);
+                      clearFieldError(setErrors, "role");
+                    }}
                   >
                     <SelectTrigger className="h-11 rounded-lg border-input bg-card text-sm shadow-none focus:ring-2 focus:ring-ring/20">
                       <SelectValue placeholder="Select Role" />
@@ -438,7 +524,7 @@ function LoginPage() {
                   label="Phone"
                   icon={Phone}
                   type="tel"
-                  value={account.phone}
+                  value={registerForm.phone}
                   onChange={(value) => {
                     updateAccount("phone", digitsOnly(value));
                     clearFieldError(setErrors, "phone");
@@ -462,6 +548,64 @@ function LoginPage() {
                   pattern={EMAIL_INPUT_PATTERN}
                   title="Use a professional email such as name@clinicname.com"
                 />
+                {registerForm.role === "admin" && (
+                  <>
+                    <TextField
+                      label="Hospital Name"
+                      icon={ShieldCheck}
+                      value={registerForm.hospitalName}
+                      onChange={(value) => {
+                        updateAccount("hospitalName", value);
+                        clearFieldError(setErrors, "hospitalName");
+                      }}
+                      placeholder="kimes"
+                      error={errors.hospitalName}
+                    />
+                    <TextField
+                      label="Hospital Phone"
+                      icon={Phone}
+                      type="tel"
+                      value={registerForm.hospitalPhone}
+                      onChange={(value) => {
+                        updateAccount("hospitalPhone", digitsOnly(value));
+                        clearFieldError(setErrors, "hospitalPhone");
+                      }}
+                      placeholder="1234567893"
+                      error={errors.hospitalPhone}
+                      inputMode="numeric"
+                      maxLength={10}
+                    />
+                    <TextField
+                      label="Hospital Email"
+                      icon={Mail}
+                      type="email"
+                      value={registerForm.hospitalEmail}
+                      onChange={(value) => {
+                        updateAccount("hospitalEmail", cleanEmail(value));
+                        clearFieldError(setErrors, "hospitalEmail");
+                      }}
+                      placeholder="kimes@gmail.com"
+                      error={errors.hospitalEmail}
+                      pattern={EMAIL_INPUT_PATTERN}
+                      title="Use a professional email such as hospital@clinicname.com"
+                    />
+                    <div className="sm:col-span-2">
+                      <label className="mb-1.5 block text-sm font-medium">Hospital Address</label>
+                      <textarea
+                        value={registerForm.hospitalAddress}
+                        onChange={(event) => {
+                          updateAccount("hospitalAddress", event.target.value);
+                          clearFieldError(setErrors, "hospitalAddress");
+                        }}
+                        placeholder="12"
+                        className="min-h-24 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+                      />
+                      {errors.hospitalAddress && (
+                        <p className="mt-1.5 text-xs text-destructive">{errors.hospitalAddress}</p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -504,7 +648,7 @@ function LoginPage() {
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">Confirm Password</label>
                   <PasswordField
-                    value={account.confirmPassword}
+                    value={registerForm.confirmPassword}
                     onChange={(value) => {
                       updateAccount("confirmPassword", value.replace(/\s/g, ""));
                       clearFieldError(setErrors, "confirmPassword");
@@ -548,7 +692,7 @@ function LoginPage() {
               <div>
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Checkbox
-                    checked={account.terms}
+                    checked={registerForm.terms}
                     onCheckedChange={(checked) => updateAccount("terms", checked === true)}
                   />
                   I agree terms & conditions
@@ -614,6 +758,33 @@ function getRegisteredUser(email) {
     return users[email.toLowerCase()] ?? null;
   } catch {
     return null;
+  }
+}
+
+function readLoginDraft() {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(window.localStorage.getItem(LOGIN_DRAFT_STORAGE_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function writeLoginDraft(draft) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LOGIN_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // Ignore restricted storage environments.
+  }
+}
+
+function clearLoginDraft() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(LOGIN_DRAFT_STORAGE_KEY);
+  } catch {
+    // Ignore restricted storage environments.
   }
 }
 
